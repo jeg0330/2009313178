@@ -85,8 +85,8 @@ def load_df(filename):
     result_df = result_df.groupby('name').agg(
         {'flair': 'max', 'score': 'mean', 'points': 'mean', 'degree': 'mean',
          'played_next_7_days': 'max'}).reset_index()
+    result_df.drop('name', axis=1, inplace=True)
 
     # 결과 데이터프레임 출력
-    print(result_df[result_df['played_next_7_days'] == 1])
-
+    print(result_df)
     return result_df
