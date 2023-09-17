@@ -8,7 +8,7 @@
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/data_loader.py" beforeDir="false" afterPath="$PROJECT_DIR$/data_loader.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/model_training.py" beforeDir="false" afterPath="$PROJECT_DIR$/model_training.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../소프트웨어대학_연구논문작품_중간보고서_2009313178_조은귀.hwp" beforeDir="false" afterPath="$PROJECT_DIR$/../소프트웨어대학_연구논문작품_중간보고서_2009313178_조은귀.hwp" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -47,6 +47,7 @@
 }]]></component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\eungwi\git\2009313178\user-churn-py" />
       <recent name="$PROJECT_DIR$" />
     </key>
   </component>
@@ -91,7 +92,7 @@
       <workItem from="1694928142720" duration="3995000" />
       <workItem from="1694932241031" duration="148000" />
       <workItem from="1694932397505" duration="2853000" />
-      <workItem from="1694938862780" duration="1597000" />
+      <workItem from="1694938862780" duration="8114000" />
     </task>
     <servers />
   </component>

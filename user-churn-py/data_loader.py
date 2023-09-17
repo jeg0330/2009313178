@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 def load_df(filename):
     ##  날짜 / 플레이어 이름 / 승패 / flair(0 또는 1) / degree / score / point
-    with open(filename, 'r') as f:
+    with open(filename, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
     dataframes = []
@@ -45,10 +45,10 @@ def load_df(filename):
 
     ## count same name
     print(combined_df['name'].value_counts())
-    return combined_df;
+    return combined_df
 
 
-def filter(df, activation_period=7, target_period=7, target_column='played_next_7_days'):
+def filter_df(df, activation_period=7, target_period=7, target_column='played_next_7_days'):
     # 각 유저의 처음 로그인 날짜 찾기
     first_login_dates = df.groupby('name')['date'].min().reset_index()
 

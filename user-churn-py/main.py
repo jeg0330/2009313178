@@ -4,7 +4,7 @@ import data_loader
 filename = "bulkmatches1-20000.json"
 df = data_loader.load_df(filename)
 
-##  df date의 min, max 출력
+### summary
 print(df['date'].min())
 print(df['date'].max())
 print(df['date'].max() - df['date'].min())
@@ -13,11 +13,11 @@ print(df['date'].max() - df['date'].min())
 activation_period = 14
 target_period = 3
 target_column = 'target_value'
-result_df = data_loader.filter(df, activation_period, target_period, target_column)
+result_df = filter_df(df, activation_period, target_period, target_column)
 
 X, y, X_train, X_test, y_train, y_test = data_loader.data_split(result_df, target_column, 0.3,
-                                                                random_state=123456)
-## data preprocessing
+                                                                random_state=4)
+## data visualization
 import data_visualization
 
 data_visualization.visualize_column_counts(result_df, target_column)
