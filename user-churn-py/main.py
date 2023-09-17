@@ -14,3 +14,12 @@ import data_visualization
 data_visualization.visualize_column_counts(result_df, 'played_next_7_days')
 data_visualization.visualize_correlation_matrix(result_df, method='pearson')
 data_visualization.visualize_scatter_matrix(['score', 'points', 'degree', 'flair'], 'played_next_7_days', result_df)
+
+## model training
+import model_training
+
+## 1. KNN
+model_training.knn_classifier(X_train, y_train, X_test, y_test)
+model_training.random_forest_classifier(X_train, X_test, y_train, y_test)
+model_training.naive_bayes_classifier(X_train, y_train, X_test, y_test)
+model_training.support_vector_classifier(X_train, y_train, X_test, y_test)
