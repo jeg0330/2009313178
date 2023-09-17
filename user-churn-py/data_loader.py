@@ -1,6 +1,7 @@
 import json
 import pandas as pd
 import datetime
+from sklearn.model_selection import train_test_split
 
 
 def load_df(filename):
@@ -43,40 +44,41 @@ def load_df(filename):
 
     ## count same name
     print(combined_df['name'].value_counts())
+    return combined_df;
 
+
+def filter(df, activation_period=7, target_period=7, target_column='played_next_7_days'):
     # 각 유저의 처음 로그인 날짜 찾기
-    first_login_dates = combined_df.groupby('name')['date'].min().reset_index()
+    first_login_dates = df.groupby('name')['date'].min().reset_index()
 
     # 처음 로그인 날짜를 기준으로 시작 날짜 계산
     first_login_dates['start_date'] = first_login_dates['date']
-    first_login_dates['end_date'] = first_login_dates['start_date'] + datetime.timedelta(days=7)
+    first_login_dates['end_date'] = first_login_dates['start_date'] + datetime.timedelta(days=activation_period)
 
     # 다음 7일 동안 활동한 유저 필터링
-    filtered_users = combined_df[combined_df['name'].isin(first_login_dates['name'].tolist())]
+    filtered_users = df[df['name'].isin(first_login_dates['name'].tolist())]
     filtered_users = filtered_users[filtered_users['date'] >= first_login_dates['start_date'].min()]
     filtered_users = filtered_users[filtered_users['date'] <= first_login_dates['end_date'].max()]
 
     # 각 유저가 다음 7일 동안에 플레이한 여부를 나타내는 칼럼 추가 (0 또는 1)
-    filtered_users['played_next_7_days'] = 0  # 기본값으로 0 설정
+    filtered_users[target_column] = 0  # 기본값으로 0 설정
 
     # 다음 7일 동안에 활동한 유저 목록
-    active_users_within_next_7_days = combined_df[
-        (combined_df['date'] >= first_login_dates['end_date'].min()) &
-        (combined_df['date'] < first_login_dates['end_date'].max() + datetime.timedelta(days=7))
+    active_users_within_next_7_days = df[
+        (df['date'] >= first_login_dates['end_date'].min()) &
+        (df['date'] < first_login_dates['end_date'].max() + datetime.timedelta(days=target_period))
         ]['name'].unique()
 
-    # 다음 7일 동안에 활동한 유저인 경우 'played_next_7_days' 칼럼 값을 1로 설정
-    filtered_users.loc[filtered_users['name'].isin(active_users_within_next_7_days), 'played_next_7_days'] = 1
+    # 다음 7일 동안에 활동한 유저인 경우 target_column 칼럼 값을 1로 설정
+    filtered_users.loc[filtered_users['name'].isin(active_users_within_next_7_days), target_column] = 1
 
     ## 결과 데이터프레임 출력
-    print(filtered_users[filtered_users['name'] == 'RoDyMaRy']['degree'])
-
     print(filtered_users.keys())
 
     ## 필요한 칼럼 선택 및 처리
 
     # 필요한 칼럼 선택
-    selected_columns = ['name', 'score', 'points', 'degree', 'flair', 'played_next_7_days']
+    selected_columns = ['name', 'score', 'points', 'degree', 'flair', target_column]
 
     # 결과 데이터프레임 출력
     result_df = filtered_users[selected_columns]
@@ -84,9 +86,16 @@ def load_df(filename):
     # flair, score, points, degree 열은 그룹별로 max 또는 mean 계산
     result_df = result_df.groupby('name').agg(
         {'flair': 'max', 'score': 'mean', 'points': 'mean', 'degree': 'mean',
-         'played_next_7_days': 'max'}).reset_index()
+         target_column: 'max'}).reset_index()
     result_df.drop('name', axis=1, inplace=True)
 
     # 결과 데이터프레임 출력
     print(result_df)
     return result_df
+
+
+def data_split(df, t_col, test_size, random_state=123456):
+    X = df.drop(t_col, axis='columns')
+    y = df[[t_col]]
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+    return X, y, X_train, X_test, y_train, y_test

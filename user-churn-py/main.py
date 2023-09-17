@@ -1,24 +1,27 @@
 ## data load
-import dataframe_loader
+import data_loader
 
-result_df = dataframe_loader.load_df("bulkmatches1-20000.json")
+filename = "bulkmatches1-20000.json"
+df = data_loader.load_df(filename)
 
-## data split
-import data_split
+## data filter
+activation_period = 7
+target_period = 7
+target_column = 'target_value'
+result_df = data_loader.filter(df, activation_period, target_period, target_column)
 
-X, y, X_train, X_test, y_train, y_test = data_split.data_split(result_df, 'played_next_7_days', 0.3,
-                                                               random_state=123456)
+X, y, X_train, X_test, y_train, y_test = data_loader.data_split(result_df, target_column, 0.3,
+                                                                random_state=123456)
 ## data preprocessing
 import data_visualization
 
-data_visualization.visualize_column_counts(result_df, 'played_next_7_days')
+data_visualization.visualize_column_counts(result_df, target_column)
 data_visualization.visualize_correlation_matrix(result_df, method='pearson')
-data_visualization.visualize_scatter_matrix(['score', 'points', 'degree', 'flair'], 'played_next_7_days', result_df)
+data_visualization.visualize_scatter_matrix(['score', 'points', 'degree', 'flair'], target_column, result_df)
 
 ## model training
 import model_training
 
-## 1. KNN
 model_training.knn_classifier(X_train, y_train, X_test, y_test)
 model_training.random_forest_classifier(X_train, X_test, y_train, y_test)
 model_training.naive_bayes_classifier(X_train, y_train, X_test, y_test)
