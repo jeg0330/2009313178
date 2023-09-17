@@ -2,6 +2,7 @@ import json
 import pandas as pd
 import datetime
 from sklearn.model_selection import train_test_split
+from tqdm import tqdm
 
 
 def load_df(filename):
@@ -11,7 +12,7 @@ def load_df(filename):
 
     dataframes = []
 
-    for key, json_data in data.items():
+    for key, json_data in tqdm(data.items(), desc='Reading JSON', unit=' keys'):
         # JSON 데이터를 데이터프레임으로 변환
         df = pd.DataFrame(json_data['players'])
 

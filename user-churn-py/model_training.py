@@ -33,7 +33,7 @@ def knn_classifier(X_train, y_train, X_test, y_test):
     print('kNN Classification Report : \n')
     print(classification_report(y_test, y_pred))
     print('Accuracy of diagnosis prediction using KNN = ', accuracy_score(y_pred, y_test) * 100)
-
+    print('----------------------------------------------')
     return y_test, y_pred, model
 
 
@@ -46,6 +46,7 @@ def random_forest_classifier(X_train, X_test, y_train, y_test):
     print('RF Classification Report : \n')
     print(classification_report(y_test, y_pred))
     print('Accuracy of diagnosis prediction using Naive Bayes = ', accuracy_score(y_pred, y_test) * 100)
+    print('----------------------------------------------')
 
     return y_test, y_pred, model
 
@@ -59,6 +60,7 @@ def naive_bayes_classifier(X_train, y_train, X_test, y_test):
     print('Naive Bayes Classification Report : \n')
     print(classification_report(y_test, y_pred))
     print('Accuracy of diagnosis prediction using Naive Bayes = ', accuracy_score(y_pred, y_test) * 100)
+    print('----------------------------------------------')
 
 
 def support_vector_classifier(X_train, y_train, X_test, y_test):
@@ -70,6 +72,7 @@ def support_vector_classifier(X_train, y_train, X_test, y_test):
     print('SVM Classification Report : \n')
     print(classification_report(y_test, y_pred))
     print('Accuracy of diagnosis prediction using SVM = ', accuracy_score(y_pred, y_test) * 100)
+    print('----------------------------------------------')
 
 
 ## cv_val
