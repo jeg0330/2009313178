@@ -69,5 +69,22 @@ active_users_within_next_7_days = combined_df[
 filtered_users.loc[filtered_users['name'].isin(active_users_within_next_7_days), 'played_next_7_days'] = 1
 
 ## 결과 데이터프레임 출력
-print(filtered_users[filtered_users['name'] == 'RoDyMaRy'])
+print(filtered_users[filtered_users['name'] == 'RoDyMaRy']['degree'])
+
+print(filtered_users.keys())
+
+## 필요한 칼럼 선택 및 처리
+
+# 필요한 칼럼 선택
+selected_columns = ['name', 'score', 'points', 'degree', 'flair', 'played_next_7_days']
+
+# 결과 데이터프레임 출력
+result_df = filtered_users[selected_columns]
+
+# flair, score, points, degree 열은 그룹별로 max 또는 mean 계산
+result_df = result_df.groupby('name').agg(
+    {'flair': 'max', 'score': 'mean', 'points': 'mean', 'degree': 'mean', 'played_next_7_days': 'max'}).reset_index()
+
+# 결과 데이터프레임 출력
+print(result_df[result_df['played_next_7_days'] == 1])
 
