@@ -10,10 +10,10 @@ print(df['date'].max())
 print(df['date'].max() - df['date'].min())
 
 ## data filter
-activation_period = 14
-target_period = 3
-target_column = 'target_value'
-result_df = filter_df(df, activation_period, target_period, target_column)
+activation_period = 3
+target_period = 7
+target_column = f'op_{activation_period}d_and_cp_{target_period}d'
+result_df = data_loader.filter_df(df, activation_period, target_period, target_column)
 
 X, y, X_train, X_test, y_train, y_test = data_loader.data_split(result_df, target_column, 0.3,
                                                                 random_state=4)
