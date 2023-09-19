@@ -1,87 +1,86 @@
-@@ -0,0 +1,160 @@
 # Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+user-churn-py/__pycache__/
+user-churn-py/*.py[cod]
+user-churn-py/*$py.class
 
 # C extensions
-*.so
+user-churn-py/*.so
 
 # Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+user-churn-py/.Python
+user-churn-py/build/
+user-churn-py/develop-eggs/
+user-churn-py/dist/
+user-churn-py/downloads/
+user-churn-py/eggs/
+user-churn-py/.eggs/
+user-churn-py/lib/
+user-churn-py/lib64/
+user-churn-py/parts/
+user-churn-py/sdist/
+user-churn-py/var/
+user-churn-py/wheels/
+user-churn-py/share/python-wheels/
+user-churn-py/*.egg-info/
+user-churn-py/.installed.cfg
+user-churn-py/*.egg
+user-churn-py/MANIFEST
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
+user-churn-py/*.manifest
+user-churn-py/*.spec
 
 # Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
+user-churn-py/pip-log.txt
+user-churn-py/pip-delete-this-directory.txt
 
 # Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-cover/
+user-churn-py/htmlcov/
+user-churn-py/.tox/
+user-churn-py/.nox/
+user-churn-py/.coverage
+user-churn-py/.coverage.*
+user-churn-py/.cache
+user-churn-py/nosetests.xml
+user-churn-py/coverage.xml
+user-churn-py/*.cover
+user-churn-py/*.py,cover
+user-churn-py/.hypothesis/
+user-churn-py/.pytest_cache/
+user-churn-py/cover/
 
 # Translations
-*.mo
-*.pot
+user-churn-py/*.mo
+user-churn-py/*.pot
 
 # Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
+user-churn-py/*.log
+user-churn-py/local_settings.py
+user-churn-py/db.sqlite3
+user-churn-py/db.sqlite3-journal
 
 # Flask stuff:
-instance/
-.webassets-cache
+user-churn-py/instance/
+user-churn-py/.webassets-cache
 
 # Scrapy stuff:
-.scrapy
+user-churn-py/.scrapy
 
 # Sphinx documentation
-docs/_build/
+user-churn-py/docs/_build/
 
 # PyBuilder
-.pybuilder/
-target/
+user-churn-py/.pybuilder/
+user-churn-py/target/
 
 # Jupyter Notebook
-.ipynb_checkpoints
+user-churn-py/.ipynb_checkpoints
 
 # IPython
-profile_default/
-ipython_config.py
+user-churn-py/profile_default/
+user-churn-py/ipython_config.py
 
 # pyenv
 #   For a library or package, you might want to ignore these files since the code is
@@ -108,50 +107,50 @@ ipython_config.py
 #   pdm stores project-wide configurations in .pdm.toml, but it is recommended to not include it
 #   in version control.
 #   https://pdm.fming.dev/#use-with-ide
-.pdm.toml
+user-churn-py/.pdm.toml
 
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
-__pypackages__/
+user-churn-py/__pypackages__/
 
 # Celery stuff
-celerybeat-schedule
-celerybeat.pid
+user-churn-py/celerybeat-schedule
+user-churn-py/celerybeat.pid
 
 # SageMath parsed files
-*.sage.py
+user-churn-py/*.sage.py
 
 # Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+user-churn-py/.env
+user-churn-py/.venv
+user-churn-py/env/
+user-churn-py/venv/
+user-churn-py/ENV/
+user-churn-py/env.bak/
+user-churn-py/venv.bak/
 
 # Spyder project settings
-.spyderproject
-.spyproject
+user-churn-py/.spyderproject
+user-churn-py/.spyproject
 
 # Rope project settings
-.ropeproject
+user-churn-py/.ropeproject
 
 # mkdocs documentation
-/site
+user-churn-py/site
 
 # mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
+user-churn-py/.mypy_cache/
+user-churn-py/.dmypy.json
+user-churn-py/dmypy.json
 
 # Pyre type checker
-.pyre/
+user-churn-py/.pyre/
 
 # pytype static type analyzer
-.pytype/
+user-churn-py/.pytype/
 
 # Cython debug symbols
-cython_debug/
+user-churn-py/cython_debug/
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
@@ -161,3 +160,82 @@ cython_debug/
 #.idea/
 
 user-churn-py/bulkmatches1-250000.json
+
+
+# Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm, CLion, Android Studio, WebStorm and Rider
+# Reference: https://intellij-support.jetbrains.com/hc/en-us/articles/206544839
+
+# User-specific stuff
+user-churn-py/.idea/**/workspace.xml
+user-churn-py/.idea/**/tasks.xml
+user-churn-py/.idea/**/usage.statistics.xml
+user-churn-py/.idea/**/dictionaries
+user-churn-py/.idea/**/shelf
+
+# AWS User-specific
+user-churn-py/.idea/**/aws.xml
+
+# Generated files
+user-churn-py/.idea/**/contentModel.xml
+
+# Sensitive or high-churn files
+user-churn-py/.idea/**/dataSources/
+user-churn-py/.idea/**/dataSources.ids
+user-churn-py/.idea/**/dataSources.local.xml
+user-churn-py/.idea/**/sqlDataSources.xml
+user-churn-py/.idea/**/dynamic.xml
+user-churn-py/.idea/**/uiDesigner.xml
+user-churn-py/.idea/**/dbnavigator.xml
+
+# Gradle
+user-churn-py/.idea/**/gradle.xml
+user-churn-py/.idea/**/libraries
+
+# Gradle and Maven with auto-import
+# When using Gradle or Maven with auto-import, you should exclude module files,
+# since they will be recreated, and may cause churn.  Uncomment if using
+# auto-import.
+user-churn-py/# .idea/artifacts
+user-churn-py/# .idea/compiler.xml
+user-churn-py/# .idea/jarRepositories.xml
+user-churn-py/# .idea/modules.xml
+user-churn-py/# .idea/*.iml
+user-churn-py/# .idea/modules
+# *.iml
+# *.ipr
+
+# CMake
+user-churn-py/cmake-build-*/
+
+# Mongo Explorer plugin
+user-churn-py/.idea/**/mongoSettings.xml
+
+# File-based project format
+user-churn-py/*.iws
+
+# IntelliJ
+user-churn-py/out/
+
+# mpeltonen/sbt-idea plugin
+user-churn-py/.idea_modules/
+
+# JIRA plugin
+user-churn-py/atlassian-ide-plugin.xml
+
+# Cursive Clojure plugin
+user-churn-py/.idea/replstate.xml
+
+# SonarLint plugin
+user-churn-py/.idea/sonarlint/
+
+# Crashlytics plugin (for Android Studio and IntelliJ)
+user-churn-py/com_crashlytics_export_strings.xml
+user-churn-py/crashlytics.properties
+user-churn-py/crashlytics-build.properties
+user-churn-py/fabric.properties
+
+# Editor-based Rest Client
+user-churn-py/.idea/httpRequests
+
+# Android studio 3.1+ serialized cache file
+user-churn-py/.idea/caches/build_file_checksums.ser
