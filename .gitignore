@@ -239,3 +239,5 @@ user-churn-py/.idea/httpRequests
 
 # Android studio 3.1+ serialized cache file
 user-churn-py/.idea/caches/build_file_checksums.ser
+
+user-churn-py/bulkmatches*.json
