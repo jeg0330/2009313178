@@ -33,6 +33,7 @@ def load_df(filename):
         # flair 열 변환
         df['flair'] = df['flair'].apply(lambda x: 0 if x == 0 else 1)
 
+        # df['auth'] = df['auth'].astype(int)
         df = df[df['auth']]
 
         dataframes.append(df)
@@ -51,6 +52,7 @@ def load_df(filename):
 def filter_df(df, activation_period=7, target_period=7, target_column='played_next_7_days'):
     df_copy = df.copy()
 
+    # 이탈 계산 ------------------------------------------------------------------------------------------
     # 각 유저의 처음 접속 날짜 찾기
     df_copy['first_login_date'] = df_copy.groupby('name')['date'].transform('min')
     df_copy[target_column] = 0
@@ -67,15 +69,34 @@ def filter_df(df, activation_period=7, target_period=7, target_column='played_ne
     condition = (df_copy['date'] > start_date) & (df_copy['date'] < end_date)
     df_copy[target_column] = condition.astype(int)
 
-    # 필요한 칼럼 선택
-    selected_columns = ['name', 'score', 'points', 'degree', 'flair', target_column]
+    # 승률 계산 ------------------------------------------------------------------------------------------
+    # 연속된 승/패 횟수 계산
+    df_copy['start_of_streak'] = df_copy.groupby('name')['win'].diff().ne(0)
+    df_copy['streak_id'] = df_copy.groupby('name')['win'].cumsum()
+    df_copy['streak'] = df_copy.groupby(['name', 'streak_id']).cumcount() + 1
+    df_copy['streak_id'] = df_copy.groupby('name')['start_of_streak'].cumsum()
+    df_copy['streak_counter'] = df_copy.groupby(['name', 'streak_id']).cumcount() + 1
+
+    # 연승, 연패
+    df_copy['winning_streak'] = df_copy['streak_counter'] * df_copy['win']
+    df_copy['losing_streak'] = df_copy['streak_counter'] * (1 - df_copy['win'])
+
+    df_copy['auth'] = df_copy['auth'].astype(int)
+    df_copy['win_count'] = df_copy['win']
+    df_copy['lose_count'] = 1 - df_copy['win']
+
+    # 필요한 칼럼 선택 ------------------------------------------------------------------------------------
+    selected_columns = ['name', 'score', 'points', 'degree', 'win', 'win_count', 'lose_count', 'winning_streak',
+                        'losing_streak', target_column]
 
     # 결과 데이터프레임 출력
     result_df = df_copy[selected_columns]
 
     # flair, score, points, degree 열은  max 또는 mean 계산
     result_df = result_df.groupby('name').agg(
-        {'flair': 'max', 'score': 'mean', 'points': 'mean', 'degree': 'mean',
+        {'score': 'mean', 'points': 'mean', 'degree': 'mean', 'win': 'mean', 'win_count': 'sum', 'lose_count': 'sum',
+         'winning_streak': 'max',
+         'losing_streak': 'max',
          target_column: 'max'}).reset_index()
     result_df.drop('name', axis=1, inplace=True)
 
