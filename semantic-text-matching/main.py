@@ -3,6 +3,7 @@ import json
 
 from embedding import generate_embeddings, generate_embedding
 from preprocessing import process_subtitles_json, preprocess_text
+from similarity import calculate_similarity
 
 ### JSON 파일에서 자막 데이터를 불러오는 예시
 # file_name = input("자막 JSON 파일 경로를 입력하세요 (예: subtitles.json): ")
@@ -17,22 +18,23 @@ processed_segments = process_subtitles_json(json_data)
 for seg in processed_segments:
     print(f"Processed: {seg['processed_text']}, Start: {seg['start']}, Duration: {seg['duration']}")
 
-# 임베딩 생성 단계: 각 문장에 대해 임베딩 벡터 생성
-sentences = [seg['processed_text'] for seg in processed_segments]
-sentence_embeddings = generate_embeddings(sentences)
-
 ### 사용자로부터 키워드 입력 및 전처리
 # user_keyword = input("키워드를 입력하세요: ")
 user_keyword = "아기띠"
 processed_keyword = preprocess_text(user_keyword)
 
-### 임베딩 생성 단계: 키워드에 대해 임베딩 벡터 생성
+### 임베딩 생성 단계: 각 문장과 키워드에 대해 임베딩 벡터 생성
+sentences = [seg['processed_text'] for seg in processed_segments]
+sentence_embeddings = generate_embeddings(sentences)
 keyword_embedding = generate_embedding(processed_keyword)
-
-# 임베딩 생성 결과 출력 (디버그용)
-print("\n문장 임베딩 생성 완료:")
-for idx, emb in enumerate(sentence_embeddings):
-    print(f"문장 {idx + 1} 임베딩: {emb}")
 
 print("\n키워드 임베딩 생성 완료:")
 print(keyword_embedding)
+
+### 유사도 측정 단계: 키워드와 각 문장 임베딩 간 코사인 유사도 계산
+similarities = calculate_similarity(keyword_embedding, sentence_embeddings)
+
+# 유사도 측정 결과 출력 (디버그용)
+print("\n유사도 측정 결과:")
+for idx, sim in enumerate(similarities):
+    print(f"문장 {idx + 1}: 유사도 = {sim}")
