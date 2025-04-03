@@ -3,6 +3,7 @@ import json
 
 from embedding import generate_embeddings, generate_embedding
 from preprocessing import process_subtitles_json, preprocess_text
+from segment_extraction import extract_best_segment
 from similarity import calculate_similarity
 
 ### JSON 파일에서 자막 데이터를 불러오는 예시
@@ -20,7 +21,7 @@ for seg in processed_segments:
 
 ### 사용자로부터 키워드 입력 및 전처리
 # user_keyword = input("키워드를 입력하세요: ")
-user_keyword = "아기띠"
+user_keyword = "제품 소독"
 processed_keyword = preprocess_text(user_keyword)
 
 ### 임베딩 생성 단계: 각 문장과 키워드에 대해 임베딩 벡터 생성
@@ -38,3 +39,9 @@ similarities = calculate_similarity(keyword_embedding, sentence_embeddings)
 print("\n유사도 측정 결과:")
 for idx, sim in enumerate(similarities):
     print(f"문장 {idx + 1}: 유사도 = {sim}")
+
+### 최적 구간 추출 후 결과 출력 예시
+best_segment = extract_best_segment(similarities, processed_segments)
+print("\n키워드와 가장 유사한 구간:")
+print(f"Processed: {best_segment['processed_text']}, Start: {best_segment['start']}, "
+      f"Duration: {best_segment['duration']}, Similarity: {best_segment['similarity']}")
