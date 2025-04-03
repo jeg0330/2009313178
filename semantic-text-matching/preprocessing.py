@@ -56,3 +56,32 @@ def process_subtitles_json(json_data):
                 "duration": duration
             })
     return processed_segments
+
+
+def group_contiguous_segments(segments, max_gap=1.0):
+    """
+    각 자막 구간(segments)을 시간 간격(max_gap) 내에 있는 경우 하나의 그룹으로 묶습니다.
+    max_gap: 이전 구간의 끝과 다음 구간의 시작 사이 최대 허용 간격(초)
+    반환:
+      그룹화된 구간 리스트. 각 그룹은 'processed_text', 'original_text', 'start', 'duration' 등의 정보를 포함합니다.
+    """
+    if not segments:
+        return []
+
+    grouped_segments = []
+    current_group = segments[0].copy()
+
+    for seg in segments[1:]:
+        current_end = current_group['start'] + current_group['duration']
+        # 다음 구간의 시작과 이전 구간의 끝 사이 간격이 max_gap 이하인 경우 그룹화
+        if seg['start'] - current_end <= max_gap:
+            # 텍스트 결합 (공백으로 구분)
+            current_group['processed_text'] += " " + seg['processed_text']
+            current_group['original_text'] += " " + seg['original_text']
+            # 그룹의 duration 업데이트: 마지막 구간의 끝까지로 계산
+            current_group['duration'] = (seg['start'] + seg['duration']) - current_group['start']
+        else:
+            grouped_segments.append(current_group)
+            current_group = seg.copy()
+    grouped_segments.append(current_group)
+    return grouped_segments

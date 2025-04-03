@@ -2,7 +2,7 @@
 import json
 
 from embedding import generate_embeddings, generate_embedding
-from preprocessing import process_subtitles_json, preprocess_text
+from preprocessing import process_subtitles_json, preprocess_text, group_contiguous_segments
 from segment_extraction import extract_best_segment
 from similarity import calculate_similarity
 
@@ -14,6 +14,7 @@ with open(file_name, 'r', encoding='utf-8') as f:
 
 ### 전처리 및 문장 분할 수행 (원본 메타데이터 유지)
 processed_segments = process_subtitles_json(json_data)
+grouped_segments = group_contiguous_segments(processed_segments, max_gap=1.0)
 
 # 결과 출력 (각 구간의 전처리된 텍스트와 원본 메타데이터 확인)
 for seg in processed_segments:
@@ -21,7 +22,7 @@ for seg in processed_segments:
 
 ### 사용자로부터 키워드 입력 및 전처리
 # user_keyword = input("키워드를 입력하세요: ")
-user_keyword = "제품 소독"
+user_keyword = "젖병"
 processed_keyword = preprocess_text(user_keyword)
 
 ### 임베딩 생성 단계: 각 문장과 키워드에 대해 임베딩 벡터 생성
@@ -41,7 +42,7 @@ for idx, sim in enumerate(similarities):
     print(f"문장 {idx + 1}: 유사도 = {sim}")
 
 ### 최적 구간 추출 후 결과 출력 예시
-best_segment = extract_best_segment(similarities, processed_segments)
+best_segment = extract_best_segment(similarities, processed_segments, similarity_threshold=0.5, max_gap=1.0)
 print("\n키워드와 가장 유사한 구간:")
 print(f"Processed: {best_segment['processed_text']}, Start: {best_segment['start']}, "
       f"Duration: {best_segment['duration']}, Similarity: {best_segment['similarity']}")
