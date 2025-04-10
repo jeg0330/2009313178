@@ -1,5 +1,7 @@
-from youtube_transcript_api import YouTubeTranscriptApi
 import json
+
+from youtube_transcript_api import YouTubeTranscriptApi
+
 
 def fetch_youtube_subtitles(video_id):
     try:
@@ -9,6 +11,7 @@ def fetch_youtube_subtitles(video_id):
     except Exception as e:
         print("자막을 가져오는 중 오류 발생:", e)
         return None
+
 
 def save_subtitles_to_file(video_id, subtitles):
     # 파일 이름을 video_id.json 형태로 지정
@@ -20,8 +23,9 @@ def save_subtitles_to_file(video_id, subtitles):
     with open(file_name, "w", encoding="utf-8") as file:
         json.dump(data_to_save, file, ensure_ascii=False, indent=4)
 
+
 if __name__ == "__main__":
-    video_id = "gKEzL3pn1VA"  # 실제 유튜브 video id 입력
+    video_id = "gWirXv763N4"  # 실제 유튜브 video id 입력
     subtitles = fetch_youtube_subtitles(video_id)
     if subtitles:
         save_subtitles_to_file(video_id, subtitles)
