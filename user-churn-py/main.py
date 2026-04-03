@@ -28,10 +28,10 @@ data_visualization.visualize_correlation_matrix(result_df, method='pearson')
 import model_training
 
 model_training.knn_classifier(X_train, y_train, X_test, y_test)
-_, _, rf_model = model_training.random_forest_classifier(X_train, X_test, y_train, y_test)
+_, _, rf_model = model_training.random_forest_classifier(X_train, y_train, X_test, y_test)
 model_training.naive_bayes_classifier(X_train, y_train, X_test, y_test)
-model_training.xgboost_classifier(X_train, X_test, y_train, y_test)
-model_training.lightgbm_classifier(X_train, X_test, y_train, y_test)
+model_training.xgboost_classifier(X_train, y_train, X_test, y_test)
+model_training.lightgbm_classifier(X_train, y_train, X_test, y_test)
 # model_training.support_vector_classifier(X_train, y_train, X_test, y_test)
 
 ## feature importance

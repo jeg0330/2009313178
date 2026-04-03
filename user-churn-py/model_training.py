@@ -37,7 +37,7 @@ def knn_classifier(X_train, y_train, X_test, y_test):
     return y_test, y_pred, model
 
 
-def random_forest_classifier(X_train, X_test, y_train, y_test):
+def random_forest_classifier(X_train, y_train, X_test, y_test):
     model = RandomForestClassifier(n_estimators=100, max_depth=10, min_samples_split=5,
                                    class_weight='balanced', random_state=42)
     model.fit(X_train, np.ravel(y_train))
@@ -79,7 +79,7 @@ def support_vector_classifier(X_train, y_train, X_test, y_test):
     print('----------------------------------------------')
 
 
-def xgboost_classifier(X_train, X_test, y_train, y_test):
+def xgboost_classifier(X_train, y_train, X_test, y_test):
     from xgboost import XGBClassifier
 
     model = XGBClassifier(n_estimators=200, max_depth=6, learning_rate=0.1,
@@ -98,7 +98,7 @@ def xgboost_classifier(X_train, X_test, y_train, y_test):
     return y_test, y_pred, model
 
 
-def lightgbm_classifier(X_train, X_test, y_train, y_test):
+def lightgbm_classifier(X_train, y_train, X_test, y_test):
     from lightgbm import LGBMClassifier
 
     model = LGBMClassifier(n_estimators=200, max_depth=6, learning_rate=0.1,
