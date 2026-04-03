@@ -1,5 +1,8 @@
 .DS_Store
 
+# Data files
+user-churn-py/data/
+
 # Byte-compiled / optimized / DLL files
 user-churn-py/__pycache__/
 user-churn-py/*.py[cod]
