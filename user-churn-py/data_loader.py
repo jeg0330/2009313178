@@ -28,8 +28,13 @@ def load_df(filename):
         df['team'] = df['team'].apply(lambda x: 'Red' if x == 1 else 'Blue')
 
         # 승패 정보를 계산하여 추가
-        winning_team = 'Red' if json_data['teams'][0]['score'] > json_data['teams'][1]['score'] else 'Blue'
-        df['win'] = (df['team'] == winning_team).astype(int)
+        red_score = json_data['teams'][0]['score']
+        blue_score = json_data['teams'][1]['score']
+        if red_score == blue_score:
+            df['win'] = 0.5
+        else:
+            winning_team = 'Red' if red_score > blue_score else 'Blue'
+            df['win'] = (df['team'] == winning_team).astype(int)
 
         # flair 열 변환
         df['flair'] = df['flair'].apply(lambda x: 0 if x == 0 else 1)
@@ -69,13 +74,14 @@ def filter_df(df, activation_period=7, churn_observation_period=7, churn_column=
     df_feat = df_copy[df_copy['date'] <= df_copy['first_login_date'] + ap].copy()
     df_feat = df_feat.sort_values(['name', 'date'])
 
-    # 연속된 승/패 횟수 계산
-    df_feat['start_of_streak'] = df_feat.groupby('name')['win'].diff().ne(0)
+    # 연속된 승/패 횟수 계산 (무승부=0.5는 연승/연패를 끊음)
+    df_feat['_win_int'] = df_feat['win'].map({1.0: 1, 0.0: 0, 0.5: -1})
+    df_feat['start_of_streak'] = df_feat.groupby('name')['_win_int'].diff().ne(0)
     df_feat['streak_id'] = df_feat.groupby('name')['start_of_streak'].cumsum()
     df_feat['streak_counter'] = df_feat.groupby(['name', 'streak_id']).cumcount() + 1
 
-    df_feat['winning_streak'] = df_feat['streak_counter'] * df_feat['win']
-    df_feat['losing_streak'] = df_feat['streak_counter'] * (1 - df_feat['win'])
+    df_feat['winning_streak'] = df_feat['streak_counter'] * (df_feat['_win_int'] == 1).astype(int)
+    df_feat['losing_streak'] = df_feat['streak_counter'] * (df_feat['_win_int'] == 0).astype(int)
 
     df_feat['win_count'] = df_feat['win']
     df_feat['lose_count'] = 1 - df_feat['win']
@@ -122,7 +128,7 @@ def filter_df(df, activation_period=7, churn_observation_period=7, churn_column=
 def data_split(df, t_col, test_size, random_state=123456, scale=True):
     X = df.drop(t_col, axis='columns')
     y = df[[t_col]]
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=y)
 
     if scale:
         scaler = StandardScaler()
