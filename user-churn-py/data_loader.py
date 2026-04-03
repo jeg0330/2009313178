@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+
 import pandas as pd
 import datetime
 from sklearn.model_selection import train_test_split
@@ -53,6 +55,42 @@ def load_df(filename):
     ## count same name
     print(combined_df['name'].value_counts())
     return combined_df
+
+
+def load_parquet(data_dir: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """날짜 범위에 해당하는 Parquet 파일만 로드하여 DataFrame을 반환한다.
+
+    Args:
+        data_dir: Parquet 파일이 저장된 디렉토리 경로 (예: "data/matches")
+        start_date: 시작 날짜 (yyyy-mm-dd, 포함)
+        end_date: 종료 날짜 (yyyy-mm-dd, 포함)
+
+    Returns:
+        load_df()와 동일한 스키마의 DataFrame.
+        해당 범위에 파일이 없으면 빈 DataFrame을 반환한다.
+    """
+    columns = ["name", "team", "flair", "score", "points", "degree", "auth", "date", "win"]
+
+    dir_path = Path(data_dir)
+    if not dir_path.exists():
+        return pd.DataFrame(columns=columns)
+
+    start = pd.Timestamp(start_date)
+    end = pd.Timestamp(end_date)
+
+    files = []
+    for f in sorted(dir_path.glob("*.parquet")):
+        # 파일명에서 날짜 추출 (예: 2015-05-25.parquet -> 2015-05-25)
+        file_date = pd.Timestamp(f.stem)
+        if start <= file_date <= end:
+            files.append(f)
+
+    if not files:
+        return pd.DataFrame(columns=columns)
+
+    dfs = [pd.read_parquet(f) for f in files]
+    combined = pd.concat(dfs, ignore_index=True)
+    return combined
 
 
 def filter_df(df, activation_period=7, churn_observation_period=7, churn_column='played_next_7_days'):
