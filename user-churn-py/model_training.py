@@ -65,6 +65,8 @@ def naive_bayes_classifier(X_train, y_train, X_test, y_test):
     print(f'Accuracy: {accuracy_score(y_test, y_pred) * 100:.2f}%  |  AUC-ROC: {auc:.4f}')
     print('----------------------------------------------')
 
+    return y_test, y_pred, gnb
+
 
 def support_vector_classifier(X_train, y_train, X_test, y_test):
     svclassifier = SVC(kernel='linear')
