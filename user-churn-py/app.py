@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -15,7 +16,7 @@ from sklearn.metrics import (
     roc_curve,
 )
 
-from data_loader import load_parquet, filter_df, filter_df_with_names, data_split
+from data_loader import load_parquet, filter_df_with_names, data_split
 from model_training import (
     random_forest_classifier,
     knn_classifier,
@@ -24,10 +25,48 @@ from model_training import (
     lightgbm_classifier,
 )
 
+
+@st.cache_data(show_spinner=False)
+def _cached_load_parquet(data_dir, start_date, end_date):
+    return load_parquet(data_dir, start_date, end_date)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_filter(raw_df, activation_period, churn_observation_period, churn_col):
+    return filter_df_with_names(
+        raw_df,
+        activation_period=activation_period,
+        churn_observation_period=churn_observation_period,
+        churn_column=churn_col,
+    )
+
 # ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
 st.set_page_config(page_title="TagPro 유저 이탈 대시보드", layout="wide")
+
+components.html("""
+<script>
+(function() {
+    const doc = window.parent.document;
+    let overlay = doc.getElementById('loading-overlay');
+    if (!overlay) {
+        overlay = doc.createElement('div');
+        overlay.id = 'loading-overlay';
+        overlay.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;justify-content:center;align-items:center;color:white;font-size:1.5rem;font-family:sans-serif;';
+        overlay.textContent = '로딩 중...';
+        doc.body.appendChild(overlay);
+    }
+    const observer = new MutationObserver(function() {
+        const status = doc.querySelector('[data-testid="stStatusWidget"]');
+        const visible = status && status.offsetHeight > 0 && status.querySelector('svg');
+        overlay.style.display = visible ? 'flex' : 'none';
+    });
+    observer.observe(doc.body, { childList: true, subtree: true, attributes: true });
+})();
+</script>
+""", height=0)
+
 st.title("TagPro 유저 이탈 대시보드")
 
 # ---------------------------------------------------------------------------
@@ -106,74 +145,43 @@ churn_observation_period = st.sidebar.slider(
 )
 
 # ---------------------------------------------------------------------------
-# Data / model caching via session_state
+# Data loading (cached)
 # ---------------------------------------------------------------------------
+churn_col = f"ap_{activation_period}d_and_cop_{churn_observation_period}d"
+
+raw_df = _cached_load_parquet(str(DATA_DIR), str(start_date), str(end_date))
+filtered_df_names = (
+    _cached_filter(raw_df, activation_period, churn_observation_period, churn_col)
+    if not raw_df.empty else None
+)
+filtered_df = (
+    filtered_df_names.drop(columns=["name"]) if filtered_df_names is not None and not filtered_df_names.empty
+    else None
+)
+
+# 데이터가 바뀌면 모델 결과 초기화
 _cache_key = (str(start_date), str(end_date), activation_period, churn_observation_period)
-
-if "cache_key" not in st.session_state or st.session_state.cache_key != _cache_key:
-    raw_df = load_parquet(str(DATA_DIR), str(start_date), str(end_date))
-
-    if raw_df.empty:
-        st.session_state.raw_df = raw_df
-        st.session_state.filtered_df = None
-        st.session_state.filtered_df_names = None
-        st.session_state.rf_model = None
-        st.session_state.feature_names = None
-        st.session_state.model_results = None
-    else:
-        churn_col = f"ap_{activation_period}d_and_cop_{churn_observation_period}d"
-        filtered_df = filter_df(
-            raw_df,
-            activation_period=activation_period,
-            churn_observation_period=churn_observation_period,
-            churn_column=churn_col,
-        )
-        filtered_df_names = filter_df_with_names(
-            raw_df,
-            activation_period=activation_period,
-            churn_observation_period=churn_observation_period,
-            churn_column=churn_col,
-        )
-
-        if filtered_df.empty or churn_col not in filtered_df.columns:
-            st.session_state.raw_df = raw_df
-            st.session_state.filtered_df = None
-            st.session_state.filtered_df_names = None
-            st.session_state.rf_model = None
-            st.session_state.feature_names = None
-            st.session_state.model_results = None
-        else:
-            X, y, X_train, X_test, y_train, y_test = data_split(
-                filtered_df, churn_col, test_size=0.3, random_state=42, scale=False
-            )
-            _, _, rf_model = random_forest_classifier(X_train, y_train, X_test, y_test)
-
-            st.session_state.raw_df = raw_df
-            st.session_state.filtered_df = filtered_df
-            st.session_state.filtered_df_names = filtered_df_names
-            st.session_state.rf_model = rf_model
-            st.session_state.feature_names = X.columns.tolist()
-            st.session_state.churn_col = churn_col
-            st.session_state.X_train = X_train
-            st.session_state.X_test = X_test
-            st.session_state.y_train = y_train
-            st.session_state.y_test = y_test
-            # 데이터가 바뀌었으므로 이전 모델 결과 초기화
-            st.session_state.model_results = None
-
+if st.session_state.get("cache_key") != _cache_key:
+    st.session_state.rf_model = None
+    st.session_state.model_results = None
     st.session_state.cache_key = _cache_key
-    st.session_state.activation_period = activation_period
-    st.session_state.churn_observation_period = churn_observation_period
 
-# ---------------------------------------------------------------------------
-# Retrieve cached state
-# ---------------------------------------------------------------------------
-filtered_df = st.session_state.get("filtered_df")
-filtered_df_names = st.session_state.get("filtered_df_names")
-raw_df = st.session_state.get("raw_df")
-rf_model = st.session_state.get("rf_model")
-feature_names = st.session_state.get("feature_names")
-churn_col = st.session_state.get("churn_col")
+
+def _ensure_rf():
+    """RF 모델이 필요할 때만 학습한다."""
+    if st.session_state.get("rf_model") is not None:
+        return st.session_state.rf_model, st.session_state.feature_names
+    X, y, X_train, X_test, y_train, y_test = data_split(
+        filtered_df, churn_col, test_size=0.3, random_state=42, scale=False
+    )
+    _, _, rf_model = random_forest_classifier(X_train, y_train, X_test, y_test)
+    st.session_state.rf_model = rf_model
+    st.session_state.feature_names = X.columns.tolist()
+    st.session_state.X_train = X_train
+    st.session_state.X_test = X_test
+    st.session_state.y_train = y_train
+    st.session_state.y_test = y_test
+    return rf_model, X.columns.tolist()
 
 if raw_df is None or raw_df.empty or filtered_df is None or filtered_df.empty:
     st.warning("선택한 기간에 데이터가 없습니다")
@@ -214,17 +222,17 @@ with tab1:
     st.plotly_chart(fig_dist, use_container_width=True)
 
     # --- 3. Feature Importance (RF) ---
-    if rf_model is not None and feature_names is not None:
-        st.subheader("피처 중요도 (Random Forest)")
+    st.subheader("피처 중요도 (Random Forest)")
+    rf_model, feature_names = _ensure_rf()
 
-        importances = rf_model.feature_importances_
-        fi_df = pd.DataFrame(
-            {"피처": [FEATURE_KO.get(f, f) for f in feature_names], "중요도": importances}
-        ).sort_values("중요도", ascending=True)
+    importances = rf_model.feature_importances_
+    fi_df = pd.DataFrame(
+        {"피처": [FEATURE_KO.get(f, f) for f in feature_names], "중요도": importances}
+    ).sort_values("중요도", ascending=True)
 
-        fig_fi = px.bar(fi_df, x="중요도", y="피처", orientation="h", text_auto=".3f")
-        fig_fi.update_layout(yaxis_title="", xaxis_title="중요도")
-        st.plotly_chart(fig_fi, use_container_width=True)
+    fig_fi = px.bar(fi_df, x="중요도", y="피처", orientation="h", text_auto=".3f")
+    fig_fi.update_layout(yaxis_title="", xaxis_title="중요도")
+    st.plotly_chart(fig_fi, use_container_width=True)
 
     # --- 4. Feature Correlation Heatmap ---
     st.subheader("피처 상관관계 히트맵")
@@ -283,10 +291,8 @@ with tab2:
 
     if filtered_df_names is None or filtered_df_names.empty:
         st.warning("이탈 예측에 사용할 데이터가 없습니다")
-    elif rf_model is None:
-        st.warning("모델이 학습되지 않았습니다")
     else:
-        # 이탈 확률 계산 (RF 모델 사용)
+        rf_model, _ = _ensure_rf()
         _pred_features = [c for c in FEATURE_COLS if c in filtered_df_names.columns]
         X_all = filtered_df_names[_pred_features]
         proba = rf_model.predict_proba(X_all)[:, 1]

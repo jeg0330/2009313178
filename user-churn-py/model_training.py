@@ -11,7 +11,7 @@ def knn_classifier(X_train, y_train, X_test, y_test):
     neighbors = []
     cv_scores = []
 
-    for k in range(1, 17, 1):
+    for k in range(1, 16, 2):
         neighbors.append(k)
         knn = KNeighborsClassifier(n_neighbors=k)
         knn.fit(X_train, np.ravel(y_train))

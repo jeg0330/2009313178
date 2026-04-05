@@ -94,80 +94,14 @@ def load_parquet(data_dir: str, start_date: str, end_date: str) -> pd.DataFrame:
 
 
 def filter_df(df, activation_period=7, churn_observation_period=7, churn_column='played_next_7_days'):
-    df_copy = df.copy()
-
-    # 각 유저의 처음 접속 날짜 찾기
-    df_copy['first_login_date'] = df_copy.groupby('name')['date'].transform('min')
-
-    ap = datetime.timedelta(days=activation_period)
-    cop = datetime.timedelta(days=churn_observation_period)
-
-    # 전체 범위 데이터에서 이탈 라벨 계산 -----------------------------------------------------------
-    df_full = df_copy[df_copy['date'] < df_copy['first_login_date'] + ap + cop].copy()
-    df_full[churn_column] = ((df_full['date'] > df_full['first_login_date'] + ap) &
-                             (df_full['date'] < df_full['first_login_date'] + ap + cop)).astype(int)
-    churn_labels = df_full.groupby('name')[churn_column].max().reset_index()
-
-    # ★ 피처는 activation period 내 데이터만 사용 (데이터 누수 방지) ---------------------------------
-    df_feat = df_copy[df_copy['date'] <= df_copy['first_login_date'] + ap].copy()
-    df_feat = df_feat.sort_values(['name', 'date'])
-
-    # 연속된 승/패 횟수 계산 (무승부=0.5는 연승/연패를 끊음)
-    df_feat['_win_int'] = df_feat['win'].map({1.0: 1, 0.0: 0, 0.5: -1})
-    df_feat['start_of_streak'] = df_feat.groupby('name')['_win_int'].diff().ne(0)
-    df_feat['streak_id'] = df_feat.groupby('name')['start_of_streak'].cumsum()
-    df_feat['streak_counter'] = df_feat.groupby(['name', 'streak_id']).cumcount() + 1
-
-    df_feat['winning_streak'] = df_feat['streak_counter'] * (df_feat['_win_int'] == 1).astype(int)
-    df_feat['losing_streak'] = df_feat['streak_counter'] * (df_feat['_win_int'] == 0).astype(int)
-
-    df_feat['win_count'] = df_feat['win']
-    df_feat['lose_count'] = 1 - df_feat['win']
-    df_feat['game_count'] = 1
-    df_feat['active_date'] = df_feat['date'].dt.date
-
-    # 시간 기반 피처
-    df_feat['last_game'] = df_feat.groupby('name')['date'].transform('max')
-    df_feat['engagement_hours'] = (df_feat['last_game'] - df_feat['first_login_date']).dt.total_seconds() / 3600
-    df_feat['hour'] = df_feat['date'].dt.hour
-    df_feat['prev_date'] = df_feat.groupby('name')['date'].shift(1)
-    df_feat['gap_min'] = (df_feat['date'] - df_feat['prev_date']).dt.total_seconds() / 60
-
-    # 피처 집계 ------------------------------------------------------------------------------------
-    result_df = df_feat.groupby('name').agg(
-        score_mean=('score', 'mean'),
-        score_std=('score', 'std'),
-        points_mean=('points', 'mean'),
-        degree_mean=('degree', 'mean'),
-        win_rate=('win', 'mean'),
-        win_count=('win_count', 'sum'),
-        lose_count=('lose_count', 'sum'),
-        winning_streak=('winning_streak', 'max'),
-        losing_streak=('losing_streak', 'max'),
-        game_count=('game_count', 'sum'),
-        active_days=('active_date', 'nunique'),
-        engagement_hours=('engagement_hours', 'first'),
-        avg_gap_min=('gap_min', 'mean'),
-        hour_std=('hour', 'std'),
-    ).reset_index()
-
-    result_df['score_std'] = result_df['score_std'].fillna(0)
-    result_df['hour_std'] = result_df['hour_std'].fillna(0)
-    result_df['avg_gap_min'] = result_df['avg_gap_min'].fillna(0)
-    result_df['games_per_day'] = result_df['game_count'] / result_df['active_days'].clip(lower=1)
-
-    # 이탈 라벨 합치기
-    result_df = result_df.merge(churn_labels, on='name')
-    result_df.drop('name', axis=1, inplace=True)
-
-    return result_df
+    result = filter_df_with_names(df, activation_period, churn_observation_period, churn_column)
+    result.drop('name', axis=1, inplace=True)
+    return result
 
 
 def filter_df_with_names(df, activation_period=7, churn_observation_period=7, churn_column='played_next_7_days'):
-    """filter_df()와 동일하나 name 컬럼을 유지한다."""
     df_copy = df.copy()
 
-    # 각 유저의 처음 접속 날짜 찾기
     df_copy['first_login_date'] = df_copy.groupby('name')['date'].transform('min')
 
     ap = datetime.timedelta(days=activation_period)
@@ -227,7 +161,6 @@ def filter_df_with_names(df, activation_period=7, churn_observation_period=7, ch
     result_df['avg_gap_min'] = result_df['avg_gap_min'].fillna(0)
     result_df['games_per_day'] = result_df['game_count'] / result_df['active_days'].clip(lower=1)
 
-    # 이탈 라벨 합치기 (name 컬럼 유지)
     result_df = result_df.merge(churn_labels, on='name')
 
     return result_df
