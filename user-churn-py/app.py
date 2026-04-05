@@ -1,23 +1,79 @@
 import datetime
 from pathlib import Path
 
+import numpy as np
 import streamlit as st
+import streamlit.components.v1 as components
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from sklearn.metrics import (
+    accuracy_score,
+    roc_auc_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_curve,
+)
 
-from data_loader import load_parquet, filter_df, data_split
-from model_training import random_forest_classifier
+from data_loader import load_parquet, filter_df_with_names, data_split
+from model_training import (
+    random_forest_classifier,
+    knn_classifier,
+    naive_bayes_classifier,
+    xgboost_classifier,
+    lightgbm_classifier,
+)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_load_parquet(data_dir, start_date, end_date):
+    return load_parquet(data_dir, start_date, end_date)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_filter(raw_df, activation_period, churn_observation_period, churn_col):
+    return filter_df_with_names(
+        raw_df,
+        activation_period=activation_period,
+        churn_observation_period=churn_observation_period,
+        churn_column=churn_col,
+    )
 
 # ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
-st.set_page_config(page_title="TagPro User Churn Dashboard", layout="wide")
-st.title("TagPro User Churn Dashboard")
+st.set_page_config(page_title="TagPro 유저 이탈 대시보드", layout="wide")
+
+components.html("""
+<script>
+(function() {
+    const doc = window.parent.document;
+    let overlay = doc.getElementById('loading-overlay');
+    if (!overlay) {
+        overlay = doc.createElement('div');
+        overlay.id = 'loading-overlay';
+        overlay.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;justify-content:center;align-items:center;color:white;font-size:1.5rem;font-family:sans-serif;';
+        overlay.textContent = '로딩 중...';
+        doc.body.appendChild(overlay);
+    }
+    const observer = new MutationObserver(function() {
+        const status = doc.querySelector('[data-testid="stStatusWidget"]');
+        const visible = status && status.offsetHeight > 0 && status.querySelector('svg');
+        overlay.style.display = visible ? 'flex' : 'none';
+    });
+    observer.observe(doc.body, { childList: true, subtree: true, attributes: true });
+})();
+</script>
+""", height=0)
+
+st.title("TagPro 유저 이탈 대시보드")
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 DATA_DIR = Path(__file__).parent / "data" / "matches"
 
-# Discover available date range from parquet files
 _parquet_files = sorted(DATA_DIR.glob("*.parquet")) if DATA_DIR.exists() else []
 if _parquet_files:
     _min_date = datetime.date.fromisoformat(_parquet_files[0].stem)
@@ -26,19 +82,54 @@ else:
     _min_date = datetime.date(2015, 5, 25)
     _max_date = datetime.date.today()
 
+FEATURE_KO = {
+    "score_mean": "평균 점수",
+    "score_std": "점수 표준편차",
+    "points_mean": "평균 포인트",
+    "degree_mean": "평균 등급",
+    "win_rate": "승률",
+    "win_count": "승리 횟수",
+    "lose_count": "패배 횟수",
+    "winning_streak": "최대 연승",
+    "losing_streak": "최대 연패",
+    "game_count": "총 게임 수",
+    "active_days": "활동 일수",
+    "engagement_hours": "참여 시간(h)",
+    "avg_gap_min": "평균 게임 간격(분)",
+    "hour_std": "플레이 시간대 편차",
+    "games_per_day": "일일 게임 수",
+}
+
+FEATURE_COLS = list(FEATURE_KO.keys())
+
+MODEL_NAMES = {
+    "rf": "Random Forest",
+    "knn": "KNN",
+    "nb": "Naive Bayes",
+    "xgb": "XGBoost",
+    "lgbm": "LightGBM",
+}
+
+MODEL_FUNCS = {
+    "rf": random_forest_classifier,
+    "knn": knn_classifier,
+    "nb": naive_bayes_classifier,
+    "xgb": xgboost_classifier,
+    "lgbm": lightgbm_classifier,
+}
+
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
-st.sidebar.header("Settings")
+st.sidebar.header("설정")
 
 date_range = st.sidebar.date_input(
-    "Date Range",
+    "날짜 범위",
     value=(_min_date, _max_date),
     min_value=_min_date,
     max_value=_max_date,
 )
 
-# date_input can return a single date when the user hasn't finished selecting
 if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
     start_date, end_date = date_range
 else:
@@ -46,70 +137,364 @@ else:
     end_date = start_date
 
 activation_period = st.sidebar.slider(
-    "Activation Period (days)", min_value=2, max_value=14, value=7
+    "활성 기간 (일)", min_value=2, max_value=14, value=7
 )
 
 churn_observation_period = st.sidebar.slider(
-    "Churn Observation Period (days)", min_value=3, max_value=14, value=7
+    "이탈 관찰 기간 (일)", min_value=3, max_value=14, value=7
 )
 
 # ---------------------------------------------------------------------------
-# Data / model caching via session_state
+# Data loading (cached)
 # ---------------------------------------------------------------------------
+churn_col = f"ap_{activation_period}d_and_cop_{churn_observation_period}d"
+
+raw_df = _cached_load_parquet(str(DATA_DIR), str(start_date), str(end_date))
+filtered_df_names = (
+    _cached_filter(raw_df, activation_period, churn_observation_period, churn_col)
+    if not raw_df.empty else None
+)
+filtered_df = (
+    filtered_df_names.drop(columns=["name"]) if filtered_df_names is not None and not filtered_df_names.empty
+    else None
+)
+
+# 데이터가 바뀌면 모델 결과 초기화
 _cache_key = (str(start_date), str(end_date), activation_period, churn_observation_period)
+if st.session_state.get("cache_key") != _cache_key:
+    st.session_state.rf_model = None
+    st.session_state.model_results = None
+    st.session_state.cache_key = _cache_key
 
-if "cache_key" not in st.session_state or st.session_state.cache_key != _cache_key:
-    raw_df = load_parquet(str(DATA_DIR), str(start_date), str(end_date))
 
-    if raw_df.empty:
-        st.session_state.raw_df = raw_df
-        st.session_state.filtered_df = None
-        st.session_state.rf_model = None
-        st.session_state.feature_names = None
-        st.session_state.X = None
-        st.session_state.y = None
+def _ensure_rf():
+    """RF 모델이 필요할 때만 학습한다."""
+    if st.session_state.get("rf_model") is not None:
+        return st.session_state.rf_model, st.session_state.feature_names
+    X, y, X_train, X_test, y_train, y_test = data_split(
+        filtered_df, churn_col, test_size=0.3, random_state=42, scale=False
+    )
+    _, _, rf_model = random_forest_classifier(X_train, y_train, X_test, y_test)
+    st.session_state.rf_model = rf_model
+    st.session_state.feature_names = X.columns.tolist()
+    st.session_state.X_train = X_train
+    st.session_state.X_test = X_test
+    st.session_state.y_train = y_train
+    st.session_state.y_test = y_test
+    return rf_model, X.columns.tolist()
+
+if raw_df is None or raw_df.empty or filtered_df is None or filtered_df.empty:
+    st.warning("선택한 기간에 데이터가 없습니다")
+    st.stop()
+
+# ---------------------------------------------------------------------------
+# Tabs
+# ---------------------------------------------------------------------------
+tab1, tab2, tab3 = st.tabs(["대시보드", "이탈 예측", "모델 비교"])
+
+# ============================= TAB 1: 대시보드 =============================
+with tab1:
+    # --- 1. Churn Summary ---
+    st.header("이탈 요약")
+
+    churn_counts = filtered_df[churn_col].value_counts()
+    total = len(filtered_df)
+    churned = int(churn_counts.get(0, 0))
+    retained = int(churn_counts.get(1, 0))
+    churn_rate = churned / total * 100 if total > 0 else 0
+    retain_rate = retained / total * 100 if total > 0 else 0
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("전체 유저", f"{total:,}")
+    col2.metric("이탈", f"{churned:,}", f"{churn_rate:.1f}%")
+    col3.metric("유지", f"{retained:,}", f"{retain_rate:.1f}%")
+
+    # --- 2. Churn Distribution ---
+    st.subheader("이탈/유지 분포")
+
+    dist_df = pd.DataFrame({"상태": ["이탈", "유지"], "인원": [churned, retained]})
+    fig_dist = px.bar(
+        dist_df, x="상태", y="인원", color="상태",
+        color_discrete_map={"이탈": "#EF553B", "유지": "#636EFA"},
+        text_auto=True,
+    )
+    fig_dist.update_layout(showlegend=False)
+    st.plotly_chart(fig_dist, use_container_width=True)
+
+    # --- 3. Feature Importance (RF) ---
+    st.subheader("피처 중요도 (Random Forest)")
+    rf_model, feature_names = _ensure_rf()
+
+    importances = rf_model.feature_importances_
+    fi_df = pd.DataFrame(
+        {"피처": [FEATURE_KO.get(f, f) for f in feature_names], "중요도": importances}
+    ).sort_values("중요도", ascending=True)
+
+    fig_fi = px.bar(fi_df, x="중요도", y="피처", orientation="h", text_auto=".3f")
+    fig_fi.update_layout(yaxis_title="", xaxis_title="중요도")
+    st.plotly_chart(fig_fi, use_container_width=True)
+
+    # --- 4. Feature Correlation Heatmap ---
+    st.subheader("피처 상관관계 히트맵")
+
+    corr = filtered_df.corr(numeric_only=True)
+    corr.rename(columns=FEATURE_KO, index=FEATURE_KO, inplace=True)
+    fig_heatmap = go.Figure(
+        data=go.Heatmap(
+            z=corr.values, x=corr.columns.tolist(), y=corr.index.tolist(),
+            colorscale="RdBu_r", zmid=0,
+            text=corr.round(2).values, texttemplate="%{text}", textfont={"size": 10},
+        )
+    )
+    fig_heatmap.update_layout(width=800, height=800, xaxis=dict(tickangle=-45))
+    st.plotly_chart(fig_heatmap, use_container_width=True)
+
+    # --- 5. Daily Churn Rate ---
+    st.subheader("일별 이탈률")
+
+    raw_copy = raw_df.copy()
+    raw_copy["first_login_date"] = raw_copy.groupby("name")["date"].transform("min")
+
+    ap_delta = datetime.timedelta(days=activation_period)
+    cop_delta = datetime.timedelta(days=churn_observation_period)
+
+    full = raw_copy[raw_copy["date"] < raw_copy["first_login_date"] + ap_delta + cop_delta].copy()
+    full["played_cop"] = (
+        (full["date"] > full["first_login_date"] + ap_delta)
+        & (full["date"] < full["first_login_date"] + ap_delta + cop_delta)
+    ).astype(int)
+    user_labels = full.groupby("name").agg(
+        first_login_date=("first_login_date", "first"),
+        played_cop=("played_cop", "max"),
+    ).reset_index()
+    user_labels["churned"] = (user_labels["played_cop"] == 0).astype(int)
+    user_labels["login_date"] = user_labels["first_login_date"].dt.date
+
+    daily = user_labels.groupby("login_date").agg(
+        total=("churned", "count"),
+        churned=("churned", "sum"),
+    ).reset_index()
+    daily["churn_rate"] = daily["churned"] / daily["total"] * 100
+
+    fig_ts = px.line(
+        daily, x="login_date", y="churn_rate",
+        labels={"login_date": "날짜", "churn_rate": "이탈률 (%)"},
+        markers=True,
+    )
+    fig_ts.update_layout(yaxis=dict(range=[0, 100]))
+    st.plotly_chart(fig_ts, use_container_width=True)
+
+
+# ============================= TAB 2: 이탈 예측 =============================
+with tab2:
+    st.header("이탈 예측")
+
+    if filtered_df_names is None or filtered_df_names.empty:
+        st.warning("이탈 예측에 사용할 데이터가 없습니다")
     else:
-        churn_col = f"ap_{activation_period}d_and_cop_{churn_observation_period}d"
-        filtered_df = filter_df(
-            raw_df,
-            activation_period=activation_period,
-            churn_observation_period=churn_observation_period,
-            churn_column=churn_col,
+        rf_model, _ = _ensure_rf()
+        _pred_features = [c for c in FEATURE_COLS if c in filtered_df_names.columns]
+        X_all = filtered_df_names[_pred_features]
+        proba = rf_model.predict_proba(X_all)[:, 1]
+        # proba 는 churn_col==1 (유지) 확률이므로 이탈 확률 = 1 - proba
+        # churn_col: 0=이탈, 1=유지 이므로 class 1 = 유지
+        # 이탈 확률 = P(class=0) = 1 - P(class=1)
+        churn_proba = 1 - proba
+
+        pred_df = filtered_df_names[["name"] + _pred_features].copy()
+        pred_df["이탈 확률"] = churn_proba
+
+        def _risk_label(p):
+            if p >= 0.7:
+                return "높음"
+            elif p >= 0.4:
+                return "중간"
+            else:
+                return "낮음"
+
+        pred_df["위험 등급"] = pred_df["이탈 확률"].apply(_risk_label)
+        pred_df = pred_df.sort_values("이탈 확률", ascending=False).reset_index(drop=True)
+
+        # --- Top N 위험 유저 테이블 ---
+        st.subheader("이탈 위험 유저 Top N")
+
+        top_n = st.slider("표시할 유저 수", min_value=5, max_value=min(100, len(pred_df)), value=20, key="top_n")
+
+        risk_options = ["높음", "중간", "낮음"]
+        selected_risks = st.multiselect("위험 등급 필터", options=risk_options, default=risk_options, key="risk_filter")
+
+        display_df = pred_df[pred_df["위험 등급"].isin(selected_risks)].head(top_n)
+
+        # 표시용 데이터프레임 (이름, 이탈 확률, 위험 등급)
+        st.dataframe(
+            display_df[["name", "이탈 확률", "위험 등급"]]
+            .rename(columns={"name": "유저 이름"})
+            .style.format({"이탈 확률": "{:.2%}"})
+            .applymap(
+                lambda v: (
+                    "background-color: #ffcccc" if v == "높음"
+                    else "background-color: #fff3cd" if v == "중간"
+                    else "background-color: #d4edda"
+                ),
+                subset=["위험 등급"],
+            ),
+            use_container_width=True,
+            hide_index=True,
         )
 
-        if filtered_df.empty or churn_col not in filtered_df.columns:
-            st.session_state.raw_df = raw_df
-            st.session_state.filtered_df = None
-            st.session_state.rf_model = None
-            st.session_state.feature_names = None
-            st.session_state.X = None
-            st.session_state.y = None
+        # --- 유저 검색 ---
+        st.subheader("유저 검색")
+        search_name = st.text_input("유저 이름을 입력하세요", key="user_search")
+
+        if search_name:
+            user_row = pred_df[pred_df["name"] == search_name]
+            if user_row.empty:
+                st.warning("해당 유저를 찾을 수 없습니다")
+            else:
+                user = user_row.iloc[0]
+                st.markdown(f"**유저:** {user['name']}")
+
+                ucol1, ucol2 = st.columns(2)
+                ucol1.metric("이탈 확률", f"{user['이탈 확률']:.2%}")
+                ucol2.metric("위험 등급", user["위험 등급"])
+
+                # 피처 상세 테이블
+                st.markdown("**피처 상세**")
+                feat_data = {FEATURE_KO.get(f, f): [user[f]] for f in _pred_features if f in user.index}
+                feat_display = pd.DataFrame(feat_data).T.rename(columns={0: "값"})
+                st.dataframe(feat_display, use_container_width=True)
+
+                # 레이더 차트 (각 피처를 min-max 정규화하여 0~1 스케일)
+                st.markdown("**피처 레이더 차트**")
+                radar_features = _pred_features
+                radar_labels = [FEATURE_KO.get(f, f) for f in radar_features]
+
+                # min-max 정규화 (전체 데이터 기준)
+                user_vals = []
+                for f in radar_features:
+                    col_min = pred_df[f].min()
+                    col_max = pred_df[f].max()
+                    if col_max - col_min > 0:
+                        user_vals.append((user[f] - col_min) / (col_max - col_min))
+                    else:
+                        user_vals.append(0.5)
+
+                fig_radar = go.Figure()
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=user_vals + [user_vals[0]],
+                    theta=radar_labels + [radar_labels[0]],
+                    fill="toself",
+                    name=user["name"],
+                ))
+                fig_radar.update_layout(
+                    polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_radar, use_container_width=True)
+
+
+# ============================= TAB 3: 모델 비교 =============================
+with tab3:
+    st.header("모델 비교")
+
+    X_train = st.session_state.get("X_train")
+    X_test = st.session_state.get("X_test")
+    y_train = st.session_state.get("y_train")
+    y_test = st.session_state.get("y_test")
+
+    if X_train is None or X_test is None:
+        st.warning("모델 학습에 필요한 데이터가 없습니다")
+    else:
+        def _train_all_models(X_tr, y_tr, X_te, y_te):
+            """5개 모델을 학습하고 결과를 딕셔너리로 반환한다."""
+            results = {}
+            y_te_np = np.ravel(y_te)
+            for key, func in MODEL_FUNCS.items():
+                _, y_pred, model = func(X_tr, y_tr, X_te, y_te)
+                y_pred = np.ravel(y_pred)
+                y_proba = model.predict_proba(X_te)[:, 1]
+                fpr, tpr, _ = roc_curve(y_te_np, y_proba)
+                results[key] = {
+                    "model": model,
+                    "y_pred": y_pred,
+                    "y_proba": y_proba,
+                    "fpr": fpr,
+                    "tpr": tpr,
+                    "accuracy": accuracy_score(y_te_np, y_pred),
+                    "auc_roc": roc_auc_score(y_te_np, y_proba),
+                    "f1": f1_score(y_te_np, y_pred, average="macro"),
+                    "precision": precision_score(y_te_np, y_pred, average="macro"),
+                    "recall": recall_score(y_te_np, y_pred, average="macro"),
+                }
+            return results
+
+        # 재학습 버튼
+        if st.button("모델 재학습", key="retrain_btn"):
+            with st.spinner("모델 학습 중..."):
+                model_results = _train_all_models(X_train, y_train, X_test, y_test)
+                st.session_state.model_results = model_results
+            st.success("모델 학습이 완료되었습니다!")
+
+        model_results = st.session_state.get("model_results")
+
+        if model_results is None:
+            st.info("'모델 재학습' 버튼을 눌러 5개 모델을 학습하세요.")
         else:
-            X, y, X_train, X_test, y_train, y_test = data_split(
-                filtered_df, churn_col, test_size=0.3, random_state=42, scale=False
+            # --- 성능 비교 표 ---
+            st.subheader("모델 성능 비교")
+
+            perf_rows = []
+            for key in MODEL_FUNCS:
+                r = model_results[key]
+                perf_rows.append({
+                    "모델": MODEL_NAMES[key],
+                    "정확도": r["accuracy"],
+                    "AUC-ROC": r["auc_roc"],
+                    "F1 (macro)": r["f1"],
+                    "Precision (macro)": r["precision"],
+                    "Recall (macro)": r["recall"],
+                })
+
+            perf_df = pd.DataFrame(perf_rows)
+            st.dataframe(
+                perf_df.style.format({
+                    "정확도": "{:.4f}",
+                    "AUC-ROC": "{:.4f}",
+                    "F1 (macro)": "{:.4f}",
+                    "Precision (macro)": "{:.4f}",
+                    "Recall (macro)": "{:.4f}",
+                }).highlight_max(
+                    subset=["정확도", "AUC-ROC", "F1 (macro)", "Precision (macro)", "Recall (macro)"],
+                    color="#d4edda",
+                ),
+                use_container_width=True,
+                hide_index=True,
             )
-            _, _, rf_model = random_forest_classifier(X_train, y_train, X_test, y_test)
 
-            st.session_state.raw_df = raw_df
-            st.session_state.filtered_df = filtered_df
-            st.session_state.rf_model = rf_model
-            st.session_state.feature_names = X.columns.tolist()
-            st.session_state.X = X
-            st.session_state.y = y
-            st.session_state.churn_col = churn_col
+            # --- ROC Curve 비교 차트 ---
+            st.subheader("ROC Curve 비교")
 
-    st.session_state.cache_key = _cache_key
-    st.session_state.start_date = start_date
-    st.session_state.end_date = end_date
-    st.session_state.activation_period = activation_period
-    st.session_state.churn_observation_period = churn_observation_period
-
-# ---------------------------------------------------------------------------
-# Home page content
-# ---------------------------------------------------------------------------
-st.markdown(
-    """
-    Use the **sidebar** to configure the date range and churn parameters,
-    then navigate to the **Dashboard** page to view analytics.
-    """
-)
+            fig_roc = go.Figure()
+            for key in MODEL_FUNCS:
+                r = model_results[key]
+                fig_roc.add_trace(go.Scatter(
+                    x=r["fpr"],
+                    y=r["tpr"],
+                    mode="lines",
+                    name=f"{MODEL_NAMES[key]} (AUC={r['auc_roc']:.4f})",
+                ))
+            # 대각선 (random classifier)
+            fig_roc.add_trace(go.Scatter(
+                x=[0, 1], y=[0, 1],
+                mode="lines",
+                name="랜덤 기준선",
+                line=dict(dash="dash", color="gray"),
+            ))
+            fig_roc.update_layout(
+                xaxis_title="False Positive Rate",
+                yaxis_title="True Positive Rate",
+                legend=dict(x=0.5, y=0.02, xanchor="center"),
+                width=800,
+                height=600,
+            )
+            st.plotly_chart(fig_roc, use_container_width=True)
