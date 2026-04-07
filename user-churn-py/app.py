@@ -14,6 +14,8 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     roc_curve,
+    confusion_matrix,
+    classification_report,
 )
 
 from data_loader import load_parquet, filter_df_with_names, data_split
@@ -162,26 +164,43 @@ filtered_df = (
 # 데이터가 바뀌면 모델 결과 초기화
 _cache_key = (str(start_date), str(end_date), activation_period, churn_observation_period)
 if st.session_state.get("cache_key") != _cache_key:
-    st.session_state.rf_model = None
+    st.session_state.trained_models = {}
     st.session_state.model_results = None
+    st.session_state.X_train = None
     st.session_state.cache_key = _cache_key
 
 
-def _ensure_rf():
-    """RF 모델이 필요할 때만 학습한다."""
-    if st.session_state.get("rf_model") is not None:
-        return st.session_state.rf_model, st.session_state.feature_names
+def _ensure_split():
+    """data split이 필요할 때만 실행한다."""
+    if st.session_state.get("X_train") is not None:
+        return
     X, y, X_train, X_test, y_train, y_test = data_split(
         filtered_df, churn_col, test_size=0.3, random_state=42, scale=False
     )
-    _, _, rf_model = random_forest_classifier(X_train, y_train, X_test, y_test)
-    st.session_state.rf_model = rf_model
     st.session_state.feature_names = X.columns.tolist()
     st.session_state.X_train = X_train
     st.session_state.X_test = X_test
     st.session_state.y_train = y_train
     st.session_state.y_test = y_test
-    return rf_model, X.columns.tolist()
+
+
+def _ensure_model(key):
+    """지정한 모델이 필요할 때만 학습한다."""
+    cache = st.session_state.get("trained_models", {})
+    if key in cache:
+        return cache[key]
+    _ensure_split()
+    X_train = st.session_state.X_train
+    X_test = st.session_state.X_test
+    y_train = st.session_state.y_train
+    y_test = st.session_state.y_test
+    _, _, model = MODEL_FUNCS[key](X_train, y_train, X_test, y_test)
+    cache[key] = model
+    st.session_state.trained_models = cache
+    return model
+
+# 피처 중요도를 지원하는 모델
+IMPORTANCE_MODELS = {"rf", "xgb", "lgbm"}
 
 if raw_df is None or raw_df.empty or filtered_df is None or filtered_df.empty:
     st.warning("선택한 기간에 데이터가 없습니다")
@@ -223,7 +242,8 @@ with tab1:
 
     # --- 3. Feature Importance (RF) ---
     st.subheader("피처 중요도 (Random Forest)")
-    rf_model, feature_names = _ensure_rf()
+    rf_model = _ensure_model("rf")
+    feature_names = st.session_state.feature_names
 
     importances = rf_model.feature_importances_
     fi_df = pd.DataFrame(
@@ -292,7 +312,7 @@ with tab2:
     if filtered_df_names is None or filtered_df_names.empty:
         st.warning("이탈 예측에 사용할 데이터가 없습니다")
     else:
-        rf_model, _ = _ensure_rf()
+        rf_model = _ensure_model("rf")
         _pred_features = [c for c in FEATURE_COLS if c in filtered_df_names.columns]
         X_all = filtered_df_names[_pred_features]
         proba = rf_model.predict_proba(X_all)[:, 1]
@@ -397,6 +417,7 @@ with tab2:
 with tab3:
     st.header("모델 비교")
 
+    _ensure_split()
     X_train = st.session_state.get("X_train")
     X_test = st.session_state.get("X_test")
     y_train = st.session_state.get("y_train")
