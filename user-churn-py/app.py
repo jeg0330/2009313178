@@ -326,12 +326,20 @@ with tab1:
     fig_dist.update_layout(showlegend=False)
     st.plotly_chart(fig_dist, use_container_width=True)
 
-    # --- 3. Feature Importance (RF) ---
-    st.subheader("피처 중요도 (Random Forest)")
-    rf_model = _ensure_model("rf")
-    feature_names = st.session_state.feature_names
+    # --- 3. Feature Importance ---
+    importance_keys = sorted(IMPORTANCE_MODELS)
+    dash_model_key = st.selectbox(
+        "피처 중요도 모델",
+        options=importance_keys,
+        format_func=lambda k: MODEL_NAMES[k],
+        key="dash_model",
+    )
 
-    importances = rf_model.feature_importances_
+    model = _ensure_model(dash_model_key)
+    feature_names = st.session_state.feature_names
+    st.subheader(f"피처 중요도 ({MODEL_NAMES[dash_model_key]})")
+
+    importances = model.feature_importances_
     fi_df = pd.DataFrame(
         {"피처": [FEATURE_KO.get(f, f) for f in feature_names], "중요도": importances}
     ).sort_values("중요도", ascending=True)
@@ -398,10 +406,16 @@ with tab2:
     if filtered_df_names is None or filtered_df_names.empty:
         st.warning("이탈 예측에 사용할 데이터가 없습니다")
     else:
-        rf_model = _ensure_model("rf")
+        pred_model_key = st.selectbox(
+            "예측 모델",
+            options=list(MODEL_NAMES.keys()),
+            format_func=lambda k: MODEL_NAMES[k],
+            key="pred_model",
+        )
+        pred_model = _ensure_model(pred_model_key)
         _pred_features = [c for c in FEATURE_COLS if c in filtered_df_names.columns]
         X_all = filtered_df_names[_pred_features]
-        proba = rf_model.predict_proba(X_all)[:, 1]
+        proba = pred_model.predict_proba(X_all)[:, 1]
         # proba 는 churn_col==1 (유지) 확률이므로 이탈 확률 = 1 - proba
         # churn_col: 0=이탈, 1=유지 이므로 class 1 = 유지
         # 이탈 확률 = P(class=0) = 1 - P(class=1)
