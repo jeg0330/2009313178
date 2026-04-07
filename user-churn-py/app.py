@@ -14,6 +14,8 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     roc_curve,
+    confusion_matrix,
+    classification_report,
 )
 
 from data_loader import load_parquet, filter_df_with_names, data_split
@@ -118,6 +120,44 @@ MODEL_FUNCS = {
     "lgbm": lightgbm_classifier,
 }
 
+MODEL_INFO = {
+    "rf": {
+        "설명": "여러 개의 결정 트리를 앙상블하여 다수결로 분류하는 모델",
+        "장점": "과적합에 강하고, 피처 중요도를 자체 제공하며, 하이퍼파라미터 튜닝 없이도 준수한 성능",
+        "단점": "트리 수가 많으면 학습/예측 속도가 느려지고, 모델 해석이 단일 트리보다 어려움",
+        "적합한 상황": "피처 수가 많고, 비선형 관계가 존재하는 데이터",
+        "파라미터": {"n_estimators": 100, "max_depth": 10, "min_samples_split": 5, "class_weight": "balanced"},
+    },
+    "knn": {
+        "설명": "새 데이터와 가장 가까운 k개의 이웃을 찾아 다수결로 분류하는 모델",
+        "장점": "직관적이고 구현이 간단하며, 별도의 학습 과정이 필요 없음",
+        "단점": "데이터 수가 많으면 예측이 느리고, 고차원 데이터에서 거리 계산이 무의미해질 수 있음",
+        "적합한 상황": "데이터 수가 적고, 결정 경계가 불규칙한 경우",
+        "파라미터": {"k": "CV로 자동 탐색 (1~15 홀수)", "cv": 7},
+    },
+    "nb": {
+        "설명": "베이즈 정리 기반으로 각 클래스의 사후 확률을 계산하여 분류하는 모델",
+        "장점": "매우 빠르고, 적은 데이터에서도 잘 동작하며, 확률 기반 해석 가능",
+        "단점": "피처 간 독립 가정이 깨지면 성능 저하, 연속형 피처에 가우시안 분포 가정",
+        "적합한 상황": "피처 간 독립성이 높고, 빠른 베이스라인이 필요한 경우",
+        "파라미터": {"분포 가정": "Gaussian (연속형)"},
+    },
+    "xgb": {
+        "설명": "그래디언트 부스팅 기반으로 약한 학습기를 순차적으로 보강하는 모델",
+        "장점": "높은 예측 성능, 결측치 자체 처리, 규제(regularization) 내장",
+        "단점": "하이퍼파라미터가 많아 튜닝이 복잡하고, 과적합 가능성",
+        "적합한 상황": "정형 데이터에서 최고 성능이 필요한 경우",
+        "파라미터": {"n_estimators": 200, "max_depth": 6, "learning_rate": 0.1, "scale_pos_weight": "자동 계산"},
+    },
+    "lgbm": {
+        "설명": "리프 중심 트리 분할 방식으로 빠르게 학습하는 그래디언트 부스팅 모델",
+        "장점": "XGBoost보다 빠른 학습 속도, 대용량 데이터에 효율적, 메모리 사용량 적음",
+        "단점": "적은 데이터에서 과적합되기 쉽고, 하이퍼파라미터 민감도 높음",
+        "적합한 상황": "대규모 데이터에서 빠른 학습과 높은 성능이 동시에 필요한 경우",
+        "파라미터": {"n_estimators": 200, "max_depth": 6, "learning_rate": 0.1, "is_unbalance": True},
+    },
+}
+
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
@@ -162,54 +202,157 @@ filtered_df = (
 # 데이터가 바뀌면 모델 결과 초기화
 _cache_key = (str(start_date), str(end_date), activation_period, churn_observation_period)
 if st.session_state.get("cache_key") != _cache_key:
-    st.session_state.rf_model = None
+    st.session_state.trained_models = {}
     st.session_state.model_results = None
+    st.session_state.X_train = None
     st.session_state.cache_key = _cache_key
 
 
-def _ensure_rf():
-    """RF 모델이 필요할 때만 학습한다."""
-    if st.session_state.get("rf_model") is not None:
-        return st.session_state.rf_model, st.session_state.feature_names
+def _ensure_split():
+    """data split이 필요할 때만 실행한다."""
+    if st.session_state.get("X_train") is not None:
+        return
     X, y, X_train, X_test, y_train, y_test = data_split(
         filtered_df, churn_col, test_size=0.3, random_state=42, scale=False
     )
-    _, _, rf_model = random_forest_classifier(X_train, y_train, X_test, y_test)
-    st.session_state.rf_model = rf_model
     st.session_state.feature_names = X.columns.tolist()
     st.session_state.X_train = X_train
     st.session_state.X_test = X_test
     st.session_state.y_train = y_train
     st.session_state.y_test = y_test
-    return rf_model, X.columns.tolist()
+
+
+def _ensure_model(key):
+    """지정한 모델이 필요할 때만 학습한다."""
+    cache = st.session_state.get("trained_models", {})
+    if key in cache:
+        return cache[key]
+    _ensure_split()
+    X_train = st.session_state.X_train
+    X_test = st.session_state.X_test
+    y_train = st.session_state.y_train
+    y_test = st.session_state.y_test
+    _, _, model = MODEL_FUNCS[key](X_train, y_train, X_test, y_test)
+    cache[key] = model
+    st.session_state.trained_models = cache
+    return model
+
+# 피처 중요도를 지원하는 모델
+IMPORTANCE_MODELS = {"rf", "xgb", "lgbm"}
 
 if raw_df is None or raw_df.empty or filtered_df is None or filtered_df.empty:
     st.warning("선택한 기간에 데이터가 없습니다")
     st.stop()
 
 # ---------------------------------------------------------------------------
+# Header: 프로젝트 소개 + KPI
+# ---------------------------------------------------------------------------
+st.caption("TagPro 게임 유저의 이탈 패턴을 분석하고 머신러닝 모델로 이탈을 예측합니다.")
+
+churn_counts = filtered_df[churn_col].value_counts()
+total = len(filtered_df)
+churned = int(churn_counts.get(0, 0))
+retained = int(churn_counts.get(1, 0))
+churn_rate = churned / total * 100 if total > 0 else 0
+retain_rate = retained / total * 100 if total > 0 else 0
+
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+kpi1.metric("분석 기간", f"{start_date} ~ {end_date}")
+kpi2.metric("전체 유저", f"{total:,}")
+kpi3.metric("이탈", f"{churned:,}", f"{churn_rate:.1f}%")
+kpi4.metric("유지", f"{retained:,}", f"{retain_rate:.1f}%")
+
+st.divider()
+
+# ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
-tab1, tab2, tab3 = st.tabs(["대시보드", "이탈 예측", "모델 비교"])
+tab0, tab1, tab2, tab3 = st.tabs(["데이터 설명", "대시보드", "이탈 예측", "모델 비교"])
+
+# ============================= TAB 0: 데이터 설명 =============================
+with tab0:
+    st.header("원본 데이터 구조")
+    st.markdown("TagPro 매치 로그에서 추출한 플레이어 단위 레코드입니다.")
+
+    st.dataframe(
+        pd.DataFrame([
+            {"필드": "name", "타입": "string", "설명": "플레이어 이름 (인증된 유저만 포함)"},
+            {"필드": "team", "타입": "string", "설명": "소속 팀 (Red / Blue)"},
+            {"필드": "flair", "타입": "int", "설명": "플레어 보유 여부 (0: 없음, 1: 있음)"},
+            {"필드": "score", "타입": "int", "설명": "매치에서 획득한 점수"},
+            {"필드": "points", "타입": "int", "설명": "매치 종료 시 부여된 랭크 포인트"},
+            {"필드": "degree", "타입": "int", "설명": "플레이어 등급 (경험치 기반)"},
+            {"필드": "date", "타입": "datetime", "설명": "매치 시작 시각"},
+            {"필드": "win", "타입": "float", "설명": "승리 여부 (1: 승, 0: 패, 0.5: 무승부)"},
+        ]),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.subheader("원본 데이터 미리보기")
+    preview_n = st.slider("표시할 행 수", min_value=5, max_value=100, value=20, key="raw_preview_n")
+    st.dataframe(raw_df.head(preview_n), use_container_width=True, hide_index=True)
+    st.caption(f"전체 {len(raw_df):,}행 중 상위 {preview_n}행")
+
+    st.divider()
+
+    st.header("데이터 전처리")
+    st.markdown("JSON 원본에서 Parquet으로 변환할 때 아래 전처리를 적용했습니다.")
+    st.dataframe(
+        pd.DataFrame([
+            {"처리 항목": "비인증 유저 제거", "내용": "auth == False인 레코드 제외 (익명 유저는 추적 불가)"},
+            {"처리 항목": "flair 이진화", "내용": "flair 값을 0(없음) / 1(있음)으로 변환"},
+            {"처리 항목": "team 변환", "내용": "숫자 코드(1, 2)를 Red / Blue 문자열로 변환"},
+            {"처리 항목": "win 계산", "내용": "팀별 점수를 비교하여 승리(1) / 패배(0) / 무승부(0.5) 산출"},
+            {"처리 항목": "date 변환", "내용": "UNIX timestamp를 datetime으로 변환"},
+        ]),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.divider()
+
+    st.header("피처 엔지니어링")
+    st.markdown(
+        "원본 데이터를 유저 단위로 집계하여 아래 피처를 생성합니다. "
+        "**활성 기간(AP)** 내 데이터만 사용하여 데이터 누수를 방지합니다."
+    )
+
+    st.dataframe(
+        pd.DataFrame([
+            {"피처": "평균 점수", "원본 필드": "score", "집계 방식": "mean", "설명": "AP 내 매치 점수의 평균"},
+            {"피처": "점수 표준편차", "원본 필드": "score", "집계 방식": "std", "설명": "매치 점수의 변동 폭"},
+            {"피처": "평균 포인트", "원본 필드": "points", "집계 방식": "mean", "설명": "랭크 포인트의 평균"},
+            {"피처": "평균 등급", "원본 필드": "degree", "집계 방식": "mean", "설명": "플레이어 등급의 평균"},
+            {"피처": "승률", "원본 필드": "win", "집계 방식": "mean", "설명": "전체 매치 중 승리 비율"},
+            {"피처": "승리 횟수", "원본 필드": "win", "집계 방식": "sum", "설명": "총 승리 매치 수"},
+            {"피처": "패배 횟수", "원본 필드": "win", "집계 방식": "sum(1-win)", "설명": "총 패배 매치 수"},
+            {"피처": "최대 연승", "원본 필드": "win", "집계 방식": "streak max", "설명": "연속 승리 최대 횟수"},
+            {"피처": "최대 연패", "원본 필드": "win", "집계 방식": "streak max", "설명": "연속 패배 최대 횟수"},
+            {"피처": "총 게임 수", "원본 필드": "-", "집계 방식": "count", "설명": "AP 내 총 매치 참여 수"},
+            {"피처": "활동 일수", "원본 필드": "date", "집계 방식": "nunique(date)", "설명": "플레이한 고유 날짜 수"},
+            {"피처": "참여 시간(h)", "원본 필드": "date", "집계 방식": "max-min", "설명": "첫 게임~마지막 게임 경과 시간"},
+            {"피처": "평균 게임 간격(분)", "원본 필드": "date", "집계 방식": "mean(gap)", "설명": "연속 매치 사이 평균 대기 시간"},
+            {"피처": "플레이 시간대 편차", "원본 필드": "date", "집계 방식": "std(hour)", "설명": "플레이하는 시간대의 분산 (규칙적↓ 불규칙↑)"},
+            {"피처": "일일 게임 수", "원본 필드": "-", "집계 방식": "count/days", "설명": "활동일 당 평균 매치 수"},
+        ]),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.divider()
+
+    st.header("이탈 라벨 정의")
+    st.markdown(f"""
+- **활성 기간 (AP)**: 첫 접속일로부터 **{activation_period}일** — 이 기간의 데이터로 피처 생성
+- **이탈 관찰 기간 (COP)**: AP 종료 후 **{churn_observation_period}일** — 이 기간에 접속 여부로 이탈 판정
+- **이탈 (0)**: COP 기간에 한 번도 접속하지 않은 유저
+- **유지 (1)**: COP 기간에 1회 이상 접속한 유저
+""")
 
 # ============================= TAB 1: 대시보드 =============================
 with tab1:
-    # --- 1. Churn Summary ---
-    st.header("이탈 요약")
-
-    churn_counts = filtered_df[churn_col].value_counts()
-    total = len(filtered_df)
-    churned = int(churn_counts.get(0, 0))
-    retained = int(churn_counts.get(1, 0))
-    churn_rate = churned / total * 100 if total > 0 else 0
-    retain_rate = retained / total * 100 if total > 0 else 0
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("전체 유저", f"{total:,}")
-    col2.metric("이탈", f"{churned:,}", f"{churn_rate:.1f}%")
-    col3.metric("유지", f"{retained:,}", f"{retain_rate:.1f}%")
-
-    # --- 2. Churn Distribution ---
+    # --- 1. Churn Distribution ---
     st.subheader("이탈/유지 분포")
 
     dist_df = pd.DataFrame({"상태": ["이탈", "유지"], "인원": [churned, retained]})
@@ -221,11 +364,20 @@ with tab1:
     fig_dist.update_layout(showlegend=False)
     st.plotly_chart(fig_dist, use_container_width=True)
 
-    # --- 3. Feature Importance (RF) ---
-    st.subheader("피처 중요도 (Random Forest)")
-    rf_model, feature_names = _ensure_rf()
+    # --- 3. Feature Importance ---
+    importance_keys = sorted(IMPORTANCE_MODELS)
+    dash_model_key = st.selectbox(
+        "피처 중요도 모델",
+        options=importance_keys,
+        format_func=lambda k: MODEL_NAMES[k],
+        key="dash_model",
+    )
 
-    importances = rf_model.feature_importances_
+    model = _ensure_model(dash_model_key)
+    feature_names = st.session_state.feature_names
+    st.subheader(f"피처 중요도 ({MODEL_NAMES[dash_model_key]})")
+
+    importances = model.feature_importances_
     fi_df = pd.DataFrame(
         {"피처": [FEATURE_KO.get(f, f) for f in feature_names], "중요도": importances}
     ).sort_values("중요도", ascending=True)
@@ -292,10 +444,16 @@ with tab2:
     if filtered_df_names is None or filtered_df_names.empty:
         st.warning("이탈 예측에 사용할 데이터가 없습니다")
     else:
-        rf_model, _ = _ensure_rf()
+        pred_model_key = st.selectbox(
+            "예측 모델",
+            options=list(MODEL_NAMES.keys()),
+            format_func=lambda k: MODEL_NAMES[k],
+            key="pred_model",
+        )
+        pred_model = _ensure_model(pred_model_key)
         _pred_features = [c for c in FEATURE_COLS if c in filtered_df_names.columns]
         X_all = filtered_df_names[_pred_features]
-        proba = rf_model.predict_proba(X_all)[:, 1]
+        proba = pred_model.predict_proba(X_all)[:, 1]
         # proba 는 churn_col==1 (유지) 확률이므로 이탈 확률 = 1 - proba
         # churn_col: 0=이탈, 1=유지 이므로 class 1 = 유지
         # 이탈 확률 = P(class=0) = 1 - P(class=1)
@@ -397,6 +555,7 @@ with tab2:
 with tab3:
     st.header("모델 비교")
 
+    _ensure_split()
     X_train = st.session_state.get("X_train")
     X_test = st.session_state.get("X_test")
     y_train = st.session_state.get("y_train")
@@ -405,96 +564,162 @@ with tab3:
     if X_train is None or X_test is None:
         st.warning("모델 학습에 필요한 데이터가 없습니다")
     else:
-        def _train_all_models(X_tr, y_tr, X_te, y_te):
-            """5개 모델을 학습하고 결과를 딕셔너리로 반환한다."""
-            results = {}
-            y_te_np = np.ravel(y_te)
-            for key, func in MODEL_FUNCS.items():
-                _, y_pred, model = func(X_tr, y_tr, X_te, y_te)
-                y_pred = np.ravel(y_pred)
-                y_proba = model.predict_proba(X_te)[:, 1]
-                fpr, tpr, _ = roc_curve(y_te_np, y_proba)
-                results[key] = {
-                    "model": model,
-                    "y_pred": y_pred,
-                    "y_proba": y_proba,
-                    "fpr": fpr,
-                    "tpr": tpr,
-                    "accuracy": accuracy_score(y_te_np, y_pred),
-                    "auc_roc": roc_auc_score(y_te_np, y_proba),
-                    "f1": f1_score(y_te_np, y_pred, average="macro"),
-                    "precision": precision_score(y_te_np, y_pred, average="macro"),
-                    "recall": recall_score(y_te_np, y_pred, average="macro"),
-                }
-            return results
+        # --- 모델 선택 ---
+        all_keys = list(MODEL_NAMES.keys())
+        selected_keys = st.multiselect(
+            "비교할 모델 선택",
+            options=all_keys,
+            default=all_keys,
+            format_func=lambda k: MODEL_NAMES[k],
+            key="model_select",
+        )
 
-        # 재학습 버튼
-        if st.button("모델 재학습", key="retrain_btn"):
-            with st.spinner("모델 학습 중..."):
-                model_results = _train_all_models(X_train, y_train, X_test, y_test)
-                st.session_state.model_results = model_results
-            st.success("모델 학습이 완료되었습니다!")
-
-        model_results = st.session_state.get("model_results")
-
-        if model_results is None:
-            st.info("'모델 재학습' 버튼을 눌러 5개 모델을 학습하세요.")
+        if len(selected_keys) == 0:
+            st.info("비교할 모델을 1개 이상 선택하세요.")
         else:
-            # --- 성능 비교 표 ---
-            st.subheader("모델 성능 비교")
+            def _train_selected_models(X_tr, y_tr, X_te, y_te, keys):
+                results = {}
+                y_te_np = np.ravel(y_te)
+                for key in keys:
+                    func = MODEL_FUNCS[key]
+                    _, y_pred, model = func(X_tr, y_tr, X_te, y_te)
+                    y_pred = np.ravel(y_pred)
+                    y_proba = model.predict_proba(X_te)[:, 1]
+                    fpr, tpr, _ = roc_curve(y_te_np, y_proba)
+                    cm = confusion_matrix(y_te_np, y_pred)
+                    report = classification_report(y_te_np, y_pred, target_names=["이탈", "유지"], output_dict=True)
+                    results[key] = {
+                        "model": model,
+                        "y_pred": y_pred,
+                        "y_proba": y_proba,
+                        "fpr": fpr,
+                        "tpr": tpr,
+                        "accuracy": accuracy_score(y_te_np, y_pred),
+                        "auc_roc": roc_auc_score(y_te_np, y_proba),
+                        "f1": f1_score(y_te_np, y_pred, average="macro"),
+                        "precision": precision_score(y_te_np, y_pred, average="macro"),
+                        "recall": recall_score(y_te_np, y_pred, average="macro"),
+                        "confusion_matrix": cm,
+                        "report": report,
+                    }
+                return results
 
-            perf_rows = []
-            for key in MODEL_FUNCS:
-                r = model_results[key]
-                perf_rows.append({
-                    "모델": MODEL_NAMES[key],
-                    "정확도": r["accuracy"],
-                    "AUC-ROC": r["auc_roc"],
-                    "F1 (macro)": r["f1"],
-                    "Precision (macro)": r["precision"],
-                    "Recall (macro)": r["recall"],
-                })
+            if st.button("모델 재학습", key="retrain_btn"):
+                with st.spinner("모델 학습 중..."):
+                    model_results = _train_selected_models(X_train, y_train, X_test, y_test, selected_keys)
+                    st.session_state.model_results = model_results
+                    st.session_state.trained_keys = selected_keys
+                st.success("학습 완료!")
 
-            perf_df = pd.DataFrame(perf_rows)
-            st.dataframe(
-                perf_df.style.format({
-                    "정확도": "{:.4f}",
-                    "AUC-ROC": "{:.4f}",
-                    "F1 (macro)": "{:.4f}",
-                    "Precision (macro)": "{:.4f}",
-                    "Recall (macro)": "{:.4f}",
-                }).highlight_max(
-                    subset=["정확도", "AUC-ROC", "F1 (macro)", "Precision (macro)", "Recall (macro)"],
-                    color="#d4edda",
-                ),
-                use_container_width=True,
-                hide_index=True,
-            )
+            model_results = st.session_state.get("model_results")
+            trained_keys = st.session_state.get("trained_keys", [])
+            available_keys = [k for k in selected_keys if k in trained_keys and model_results and k in model_results]
 
-            # --- ROC Curve 비교 차트 ---
-            st.subheader("ROC Curve 비교")
+            if not available_keys:
+                st.info("'모델 재학습' 버튼을 눌러 선택한 모델을 학습하세요.")
+            else:
+                # --- 성능 비교 표 ---
+                st.subheader("성능 비교")
 
-            fig_roc = go.Figure()
-            for key in MODEL_FUNCS:
-                r = model_results[key]
-                fig_roc.add_trace(go.Scatter(
-                    x=r["fpr"],
-                    y=r["tpr"],
-                    mode="lines",
-                    name=f"{MODEL_NAMES[key]} (AUC={r['auc_roc']:.4f})",
-                ))
-            # 대각선 (random classifier)
-            fig_roc.add_trace(go.Scatter(
-                x=[0, 1], y=[0, 1],
-                mode="lines",
-                name="랜덤 기준선",
-                line=dict(dash="dash", color="gray"),
-            ))
-            fig_roc.update_layout(
-                xaxis_title="False Positive Rate",
-                yaxis_title="True Positive Rate",
-                legend=dict(x=0.5, y=0.02, xanchor="center"),
-                width=800,
-                height=600,
-            )
-            st.plotly_chart(fig_roc, use_container_width=True)
+                perf_rows = []
+                for key in available_keys:
+                    r = model_results[key]
+                    perf_rows.append({
+                        "모델": MODEL_NAMES[key],
+                        "정확도": r["accuracy"],
+                        "AUC-ROC": r["auc_roc"],
+                        "F1": r["f1"],
+                        "Precision": r["precision"],
+                        "Recall": r["recall"],
+                    })
+
+                perf_df = pd.DataFrame(perf_rows)
+                metric_cols = ["정확도", "AUC-ROC", "F1", "Precision", "Recall"]
+                st.dataframe(
+                    perf_df.style.format({c: "{:.4f}" for c in metric_cols})
+                    .highlight_max(subset=metric_cols, color="#d4edda"),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                # --- ROC Curve 비교 ---
+                if len(available_keys) >= 2:
+                    st.subheader("ROC Curve 비교")
+
+                    fig_roc = go.Figure()
+                    for key in available_keys:
+                        r = model_results[key]
+                        fig_roc.add_trace(go.Scatter(
+                            x=r["fpr"], y=r["tpr"], mode="lines",
+                            name=f"{MODEL_NAMES[key]} (AUC={r['auc_roc']:.4f})",
+                        ))
+                    fig_roc.add_trace(go.Scatter(
+                        x=[0, 1], y=[0, 1], mode="lines",
+                        name="랜덤 기준선", line=dict(dash="dash", color="gray"),
+                    ))
+                    fig_roc.update_layout(
+                        xaxis_title="False Positive Rate",
+                        yaxis_title="True Positive Rate",
+                        legend=dict(x=0.5, y=0.02, xanchor="center"),
+                        height=500,
+                    )
+                    st.plotly_chart(fig_roc, use_container_width=True)
+
+                # --- 모델별 상세 ---
+                st.subheader("모델별 상세")
+
+                for key in available_keys:
+                    r = model_results[key]
+                    info = MODEL_INFO[key]
+
+                    with st.expander(f"{MODEL_NAMES[key]}", expanded=len(available_keys) == 1):
+                        # 설명
+                        st.markdown(f"**알고리즘:** {info['설명']}")
+                        dcol1, dcol2 = st.columns(2)
+                        dcol1.markdown(f"**장점:** {info['장점']}")
+                        dcol2.markdown(f"**단점:** {info['단점']}")
+                        st.markdown(f"**적합한 상황:** {info['적합한 상황']}")
+
+                        # 파라미터
+                        st.markdown("**하이퍼파라미터**")
+                        param_df = pd.DataFrame(
+                            [{"파라미터": k, "값": str(v)} for k, v in info["파라미터"].items()]
+                        )
+                        st.dataframe(param_df, use_container_width=True, hide_index=True)
+
+                        st.divider()
+
+                        # 혼동 행렬 + 분류 리포트 나란히
+                        cm_col, rpt_col = st.columns(2)
+
+                        with cm_col:
+                            st.markdown("**혼동 행렬**")
+                            cm = r["confusion_matrix"]
+                            fig_cm = go.Figure(data=go.Heatmap(
+                                z=cm, x=["이탈 (예측)", "유지 (예측)"], y=["이탈 (실제)", "유지 (실제)"],
+                                colorscale="Blues",
+                                text=cm, texttemplate="%{text}",
+                                textfont={"size": 16},
+                                showscale=False,
+                            ))
+                            fig_cm.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
+                            st.plotly_chart(fig_cm, use_container_width=True)
+
+                        with rpt_col:
+                            st.markdown("**분류 리포트**")
+                            report = r["report"]
+                            rpt_rows = []
+                            for label in ["이탈", "유지"]:
+                                rpt_rows.append({
+                                    "클래스": label,
+                                    "Precision": report[label]["precision"],
+                                    "Recall": report[label]["recall"],
+                                    "F1-Score": report[label]["f1-score"],
+                                    "Support": int(report[label]["support"]),
+                                })
+                            rpt_df = pd.DataFrame(rpt_rows)
+                            st.dataframe(
+                                rpt_df.style.format({"Precision": "{:.4f}", "Recall": "{:.4f}", "F1-Score": "{:.4f}"}),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
