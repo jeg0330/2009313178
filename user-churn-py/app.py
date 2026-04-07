@@ -207,28 +207,114 @@ if raw_df is None or raw_df.empty or filtered_df is None or filtered_df.empty:
     st.stop()
 
 # ---------------------------------------------------------------------------
+# Header: 프로젝트 소개 + KPI
+# ---------------------------------------------------------------------------
+st.caption("TagPro 게임 유저의 이탈 패턴을 분석하고 머신러닝 모델로 이탈을 예측합니다.")
+
+churn_counts = filtered_df[churn_col].value_counts()
+total = len(filtered_df)
+churned = int(churn_counts.get(0, 0))
+retained = int(churn_counts.get(1, 0))
+churn_rate = churned / total * 100 if total > 0 else 0
+retain_rate = retained / total * 100 if total > 0 else 0
+
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+kpi1.metric("분석 기간", f"{start_date} ~ {end_date}")
+kpi2.metric("전체 유저", f"{total:,}")
+kpi3.metric("이탈", f"{churned:,}", f"{churn_rate:.1f}%")
+kpi4.metric("유지", f"{retained:,}", f"{retain_rate:.1f}%")
+
+st.divider()
+
+# ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
-tab1, tab2, tab3 = st.tabs(["대시보드", "이탈 예측", "모델 비교"])
+tab0, tab1, tab2, tab3 = st.tabs(["데이터 설명", "대시보드", "이탈 예측", "모델 비교"])
+
+# ============================= TAB 0: 데이터 설명 =============================
+with tab0:
+    st.header("원본 데이터 구조")
+    st.markdown("TagPro 매치 로그에서 추출한 플레이어 단위 레코드입니다.")
+
+    st.dataframe(
+        pd.DataFrame([
+            {"필드": "name", "타입": "string", "설명": "플레이어 이름 (인증된 유저만 포함)"},
+            {"필드": "team", "타입": "string", "설명": "소속 팀 (Red / Blue)"},
+            {"필드": "flair", "타입": "int", "설명": "플레어 보유 여부 (0: 없음, 1: 있음)"},
+            {"필드": "score", "타입": "int", "설명": "매치에서 획득한 점수"},
+            {"필드": "points", "타입": "int", "설명": "매치 종료 시 부여된 랭크 포인트"},
+            {"필드": "degree", "타입": "int", "설명": "플레이어 등급 (경험치 기반)"},
+            {"필드": "date", "타입": "datetime", "설명": "매치 시작 시각"},
+            {"필드": "win", "타입": "float", "설명": "승리 여부 (1: 승, 0: 패, 0.5: 무승부)"},
+        ]),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.subheader("원본 데이터 미리보기")
+    preview_n = st.slider("표시할 행 수", min_value=5, max_value=100, value=20, key="raw_preview_n")
+    st.dataframe(raw_df.head(preview_n), use_container_width=True, hide_index=True)
+    st.caption(f"전체 {len(raw_df):,}행 중 상위 {preview_n}행")
+
+    st.divider()
+
+    st.header("데이터 전처리")
+    st.markdown("JSON 원본에서 Parquet으로 변환할 때 아래 전처리를 적용했습니다.")
+    st.dataframe(
+        pd.DataFrame([
+            {"처리 항목": "비인증 유저 제거", "내용": "auth == False인 레코드 제외 (익명 유저는 추적 불가)"},
+            {"처리 항목": "flair 이진화", "내용": "flair 값을 0(없음) / 1(있음)으로 변환"},
+            {"처리 항목": "team 변환", "내용": "숫자 코드(1, 2)를 Red / Blue 문자열로 변환"},
+            {"처리 항목": "win 계산", "내용": "팀별 점수를 비교하여 승리(1) / 패배(0) / 무승부(0.5) 산출"},
+            {"처리 항목": "date 변환", "내용": "UNIX timestamp를 datetime으로 변환"},
+        ]),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.divider()
+
+    st.header("피처 엔지니어링")
+    st.markdown(
+        "원본 데이터를 유저 단위로 집계하여 아래 피처를 생성합니다. "
+        "**활성 기간(AP)** 내 데이터만 사용하여 데이터 누수를 방지합니다."
+    )
+
+    st.dataframe(
+        pd.DataFrame([
+            {"피처": "평균 점수", "원본 필드": "score", "집계 방식": "mean", "설명": "AP 내 매치 점수의 평균"},
+            {"피처": "점수 표준편차", "원본 필드": "score", "집계 방식": "std", "설명": "매치 점수의 변동 폭"},
+            {"피처": "평균 포인트", "원본 필드": "points", "집계 방식": "mean", "설명": "랭크 포인트의 평균"},
+            {"피처": "평균 등급", "원본 필드": "degree", "집계 방식": "mean", "설명": "플레이어 등급의 평균"},
+            {"피처": "승률", "원본 필드": "win", "집계 방식": "mean", "설명": "전체 매치 중 승리 비율"},
+            {"피처": "승리 횟수", "원본 필드": "win", "집계 방식": "sum", "설명": "총 승리 매치 수"},
+            {"피처": "패배 횟수", "원본 필드": "win", "집계 방식": "sum(1-win)", "설명": "총 패배 매치 수"},
+            {"피처": "최대 연승", "원본 필드": "win", "집계 방식": "streak max", "설명": "연속 승리 최대 횟수"},
+            {"피처": "최대 연패", "원본 필드": "win", "집계 방식": "streak max", "설명": "연속 패배 최대 횟수"},
+            {"피처": "총 게임 수", "원본 필드": "-", "집계 방식": "count", "설명": "AP 내 총 매치 참여 수"},
+            {"피처": "활동 일수", "원본 필드": "date", "집계 방식": "nunique(date)", "설명": "플레이한 고유 날짜 수"},
+            {"피처": "참여 시간(h)", "원본 필드": "date", "집계 방식": "max-min", "설명": "첫 게임~마지막 게임 경과 시간"},
+            {"피처": "평균 게임 간격(분)", "원본 필드": "date", "집계 방식": "mean(gap)", "설명": "연속 매치 사이 평균 대기 시간"},
+            {"피처": "플레이 시간대 편차", "원본 필드": "date", "집계 방식": "std(hour)", "설명": "플레이하는 시간대의 분산 (규칙적↓ 불규칙↑)"},
+            {"피처": "일일 게임 수", "원본 필드": "-", "집계 방식": "count/days", "설명": "활동일 당 평균 매치 수"},
+        ]),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.divider()
+
+    st.header("이탈 라벨 정의")
+    st.markdown(f"""
+- **활성 기간 (AP)**: 첫 접속일로부터 **{activation_period}일** — 이 기간의 데이터로 피처 생성
+- **이탈 관찰 기간 (COP)**: AP 종료 후 **{churn_observation_period}일** — 이 기간에 접속 여부로 이탈 판정
+- **이탈 (0)**: COP 기간에 한 번도 접속하지 않은 유저
+- **유지 (1)**: COP 기간에 1회 이상 접속한 유저
+""")
 
 # ============================= TAB 1: 대시보드 =============================
 with tab1:
-    # --- 1. Churn Summary ---
-    st.header("이탈 요약")
-
-    churn_counts = filtered_df[churn_col].value_counts()
-    total = len(filtered_df)
-    churned = int(churn_counts.get(0, 0))
-    retained = int(churn_counts.get(1, 0))
-    churn_rate = churned / total * 100 if total > 0 else 0
-    retain_rate = retained / total * 100 if total > 0 else 0
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("전체 유저", f"{total:,}")
-    col2.metric("이탈", f"{churned:,}", f"{churn_rate:.1f}%")
-    col3.metric("유지", f"{retained:,}", f"{retain_rate:.1f}%")
-
-    # --- 2. Churn Distribution ---
+    # --- 1. Churn Distribution ---
     st.subheader("이탈/유지 분포")
 
     dist_df = pd.DataFrame({"상태": ["이탈", "유지"], "인원": [churned, retained]})
