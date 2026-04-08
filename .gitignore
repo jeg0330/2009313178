@@ -246,3 +246,6 @@ user-churn-py/.idea/httpRequests
 user-churn-py/.idea/caches/build_file_checksums.ser
 
 user-churn-py/bulkmatches*.json
+CLAUDE.md
+**/CLAUDE.md
+docs/

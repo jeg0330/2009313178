@@ -166,7 +166,7 @@ def filter_df_with_names(df, activation_period=7, churn_observation_period=7, ch
     return result_df
 
 
-def data_split(df, t_col, test_size, random_state=123456, scale=True):
+def data_split(df, t_col, test_size, random_state=42, scale=True):
     X = df.drop(t_col, axis='columns')
     y = df[[t_col]]
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=y)
