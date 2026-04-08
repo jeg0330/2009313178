@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import datetime
 from sklearn.model_selection import train_test_split
@@ -138,7 +139,37 @@ def filter_df_with_names(df, activation_period=7, churn_observation_period=7, ch
     df_feat['prev_date'] = df_feat.groupby('name')['date'].shift(1)
     df_feat['gap_min'] = (df_feat['date'] - df_feat['prev_date']).dt.total_seconds() / 60
 
+    # 주말 플레이 여부
+    df_feat['is_weekend'] = df_feat['date'].dt.dayofweek.isin([5, 6]).astype(int)
+
+    # 피크타임(18~24시) 플레이 여부
+    df_feat['is_peak_hour'] = df_feat['hour'].between(18, 23).astype(int)
+
+    # 게임 순번 (성적 추세 계산용)
+    df_feat['game_seq'] = df_feat.groupby('name').cumcount()
+
+    # 첫 게임 승패
+    df_feat['_is_first'] = df_feat.groupby('name').cumcount() == 0
+    df_feat['first_game_win'] = df_feat['_is_first'].astype(int) * df_feat['win']
+
+    # 3연패 이상 후에도 계속 플레이했는지
+    df_feat['_hit_3loss'] = (df_feat['losing_streak'] >= 3).astype(int)
+    df_feat['_hit_3loss_cum'] = df_feat.groupby('name')['_hit_3loss'].cummax()
+    df_feat['_after_3loss'] = df_feat['_hit_3loss_cum'] & (~df_feat['_is_first'])
+
     # 피처 집계
+    def _score_trend(group):
+        """게임 순번 대비 점수의 선형 회귀 기울기"""
+        if len(group) < 2:
+            return 0.0
+        x = group['game_seq'].values.astype(float)
+        y = group['score'].values.astype(float)
+        slope = np.polyfit(x, y, 1)[0]
+        return slope
+
+    score_trends = df_feat.groupby('name').apply(_score_trend, include_groups=False).reset_index()
+    score_trends.columns = ['name', 'score_trend']
+
     result_df = df_feat.groupby('name').agg(
         score_mean=('score', 'mean'),
         score_std=('score', 'std'),
@@ -154,12 +185,19 @@ def filter_df_with_names(df, activation_period=7, churn_observation_period=7, ch
         engagement_hours=('engagement_hours', 'first'),
         avg_gap_min=('gap_min', 'mean'),
         hour_std=('hour', 'std'),
+        weekend_ratio=('is_weekend', 'mean'),
+        peak_hour_ratio=('is_peak_hour', 'mean'),
+        first_game_win=('first_game_win', 'max'),
+        comeback_after_loss=('_after_3loss', 'max'),
     ).reset_index()
 
     result_df['score_std'] = result_df['score_std'].fillna(0)
     result_df['hour_std'] = result_df['hour_std'].fillna(0)
     result_df['avg_gap_min'] = result_df['avg_gap_min'].fillna(0)
     result_df['games_per_day'] = result_df['game_count'] / result_df['active_days'].clip(lower=1)
+    result_df['comeback_after_loss'] = result_df['comeback_after_loss'].astype(int)
+
+    result_df = result_df.merge(score_trends, on='name')
 
     result_df = result_df.merge(churn_labels, on='name')
 
