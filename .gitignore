@@ -1,7 +1,8 @@
 .DS_Store
 
 # Data files
-user-churn-py/data/
+user-churn-py/data/origin/
+!user-churn-py/data/matches/
 
 # Byte-compiled / optimized / DLL files
 user-churn-py/__pycache__/
