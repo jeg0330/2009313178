@@ -157,6 +157,15 @@ def filter_df_with_names(df, activation_period=7, churn_observation_period=7, ch
     df_feat['_hit_3loss_cum'] = df_feat.groupby('name')['_hit_3loss'].cummax()
     df_feat['_after_3loss'] = df_feat['_hit_3loss_cum'] & (~df_feat['_is_first'])
 
+    # 세션 구분 (30분 이상 간격이면 새 세션)
+    df_feat['_new_session'] = (df_feat['gap_min'] > 30) | df_feat['gap_min'].isna()
+    df_feat['session_id'] = df_feat.groupby('name')['_new_session'].cumsum()
+
+    # 활동 감소율 (AP 전반부 vs 후반부 게임 수)
+    ap_mid = df_feat['first_login_date'] + datetime.timedelta(days=activation_period / 2)
+    df_feat['_is_first_half'] = (df_feat['date'] <= ap_mid).astype(int)
+    df_feat['_is_second_half'] = (df_feat['date'] > ap_mid).astype(int)
+
     # 피처 집계
     def _score_trend(group):
         """게임 순번 대비 점수의 선형 회귀 기울기"""
@@ -189,6 +198,9 @@ def filter_df_with_names(df, activation_period=7, churn_observation_period=7, ch
         peak_hour_ratio=('is_peak_hour', 'mean'),
         first_game_win=('first_game_win', 'max'),
         comeback_after_loss=('_after_3loss', 'max'),
+        session_count=('session_id', 'nunique'),
+        first_half_games=('_is_first_half', 'sum'),
+        second_half_games=('_is_second_half', 'sum'),
     ).reset_index()
 
     result_df['score_std'] = result_df['score_std'].fillna(0)
@@ -196,6 +208,12 @@ def filter_df_with_names(df, activation_period=7, churn_observation_period=7, ch
     result_df['avg_gap_min'] = result_df['avg_gap_min'].fillna(0)
     result_df['games_per_day'] = result_df['game_count'] / result_df['active_days'].clip(lower=1)
     result_df['comeback_after_loss'] = result_df['comeback_after_loss'].astype(int)
+    result_df['games_per_session'] = result_df['game_count'] / result_df['session_count'].clip(lower=1)
+    result_df['activity_decline'] = (
+        (result_df['first_half_games'] - result_df['second_half_games'])
+        / result_df['game_count'].clip(lower=1)
+    )
+    result_df.drop(columns=['first_half_games', 'second_half_games'], inplace=True)
 
     result_df = result_df.merge(score_trends, on='name')
 

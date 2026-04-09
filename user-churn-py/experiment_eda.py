@@ -45,6 +45,14 @@ FEATURE_KO = {
     "avg_gap_min": "평균 게임 간격(분)",
     "hour_std": "플레이 시간대 편차",
     "games_per_day": "일일 게임 수",
+    "weekend_ratio": "주말 플레이 비율",
+    "peak_hour_ratio": "피크타임 플레이 비율",
+    "first_game_win": "첫 게임 승패",
+    "comeback_after_loss": "3연패 후 복귀",
+    "score_trend": "성적 추세(기울기)",
+    "session_count": "세션 수",
+    "games_per_session": "세션당 게임 수",
+    "activity_decline": "활동 감소율",
 }
 
 # ── 데이터 로드 ──────────────────────────────────────────────
