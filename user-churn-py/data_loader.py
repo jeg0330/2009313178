@@ -1,7 +1,11 @@
 import json
+from pathlib import Path
+
+import numpy as np
 import pandas as pd
 import datetime
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 
@@ -27,8 +31,13 @@ def load_df(filename):
         df['team'] = df['team'].apply(lambda x: 'Red' if x == 1 else 'Blue')
 
         # 승패 정보를 계산하여 추가
-        winning_team = 'Red' if json_data['teams'][0]['score'] > json_data['teams'][1]['score'] else 'Blue'
-        df['win'] = (df['team'] == winning_team).astype(int)
+        red_score = json_data['teams'][0]['score']
+        blue_score = json_data['teams'][1]['score']
+        if red_score == blue_score:
+            df['win'] = 0.5
+        else:
+            winning_team = 'Red' if red_score > blue_score else 'Blue'
+            df['win'] = (df['team'] == winning_team).astype(int)
 
         # flair 열 변환
         df['flair'] = df['flair'].apply(lambda x: 0 if x == 0 else 1)
@@ -49,63 +58,178 @@ def load_df(filename):
     return combined_df
 
 
+def load_parquet(data_dir: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """날짜 범위에 해당하는 Parquet 파일만 로드하여 DataFrame을 반환한다.
+
+    Args:
+        data_dir: Parquet 파일이 저장된 디렉토리 경로 (예: "data/matches")
+        start_date: 시작 날짜 (yyyy-mm-dd, 포함)
+        end_date: 종료 날짜 (yyyy-mm-dd, 포함)
+
+    Returns:
+        load_df()와 동일한 스키마의 DataFrame.
+        해당 범위에 파일이 없으면 빈 DataFrame을 반환한다.
+    """
+    columns = ["name", "team", "flair", "score", "points", "degree", "auth", "date", "win"]
+
+    dir_path = Path(data_dir)
+    if not dir_path.exists():
+        return pd.DataFrame(columns=columns)
+
+    start = pd.Timestamp(start_date)
+    end = pd.Timestamp(end_date)
+
+    files = []
+    for f in sorted(dir_path.glob("*.parquet")):
+        # 파일명에서 날짜 추출 (예: 2015-05-25.parquet -> 2015-05-25)
+        file_date = pd.Timestamp(f.stem)
+        if start <= file_date <= end:
+            files.append(f)
+
+    if not files:
+        return pd.DataFrame(columns=columns)
+
+    dfs = [pd.read_parquet(f) for f in files]
+    combined = pd.concat(dfs, ignore_index=True)
+    return combined
+
+
 def filter_df(df, activation_period=7, churn_observation_period=7, churn_column='played_next_7_days'):
+    result = filter_df_with_names(df, activation_period, churn_observation_period, churn_column)
+    result.drop('name', axis=1, inplace=True)
+    return result
+
+
+def filter_df_with_names(df, activation_period=7, churn_observation_period=7, churn_column='played_next_7_days'):
     df_copy = df.copy()
 
-    # 이탈 계산 ------------------------------------------------------------------------------------------
-    # 각 유저의 처음 접속 날짜 찾기
     df_copy['first_login_date'] = df_copy.groupby('name')['date'].transform('min')
-    df_copy[churn_column] = 0
 
-    # 최초 로그인 + activation_period + target_period 이후 데이터 제거
-    activation_period = datetime.timedelta(days=activation_period)
-    churn_observation_period = datetime.timedelta(days=churn_observation_period)
+    ap = datetime.timedelta(days=activation_period)
+    cop = datetime.timedelta(days=churn_observation_period)
 
-    df_copy = df_copy[df_copy['date'] < df_copy['first_login_date'] + activation_period + churn_observation_period]
+    # 전체 범위 데이터에서 이탈 라벨 계산
+    df_full = df_copy[df_copy['date'] < df_copy['first_login_date'] + ap + cop].copy()
+    df_full[churn_column] = ((df_full['date'] > df_full['first_login_date'] + ap) &
+                             (df_full['date'] < df_full['first_login_date'] + ap + cop)).astype(int)
+    churn_labels = df_full.groupby('name')[churn_column].max().reset_index()
 
-    # target_period 기간 중 접속 여부
-    start_date = df_copy['first_login_date'] + activation_period
-    end_date = start_date + churn_observation_period
-    condition = (df_copy['date'] > start_date) & (df_copy['date'] < end_date)
-    df_copy[churn_column] = condition.astype(int)
+    # 피처는 activation period 내 데이터만 사용 (데이터 누수 방지)
+    df_feat = df_copy[df_copy['date'] <= df_copy['first_login_date'] + ap].copy()
+    df_feat = df_feat.sort_values(['name', 'date'])
 
-    # 승률 계산 ------------------------------------------------------------------------------------------
     # 연속된 승/패 횟수 계산
-    df_copy['start_of_streak'] = df_copy.groupby('name')['win'].diff().ne(0)
-    df_copy['streak_id'] = df_copy.groupby('name')['win'].cumsum()
-    df_copy['streak'] = df_copy.groupby(['name', 'streak_id']).cumcount() + 1
-    df_copy['streak_id'] = df_copy.groupby('name')['start_of_streak'].cumsum()
-    df_copy['streak_counter'] = df_copy.groupby(['name', 'streak_id']).cumcount() + 1
+    df_feat['_win_int'] = df_feat['win'].map({1.0: 1, 0.0: 0, 0.5: -1})
+    df_feat['start_of_streak'] = df_feat.groupby('name')['_win_int'].diff().ne(0)
+    df_feat['streak_id'] = df_feat.groupby('name')['start_of_streak'].cumsum()
+    df_feat['streak_counter'] = df_feat.groupby(['name', 'streak_id']).cumcount() + 1
 
-    # 연승, 연패
-    df_copy['winning_streak'] = df_copy['streak_counter'] * df_copy['win']
-    df_copy['losing_streak'] = df_copy['streak_counter'] * (1 - df_copy['win'])
+    df_feat['winning_streak'] = df_feat['streak_counter'] * (df_feat['_win_int'] == 1).astype(int)
+    df_feat['losing_streak'] = df_feat['streak_counter'] * (df_feat['_win_int'] == 0).astype(int)
 
-    df_copy['auth'] = df_copy['auth'].astype(int)
-    df_copy['win_count'] = df_copy['win']
-    df_copy['lose_count'] = 1 - df_copy['win']
+    df_feat['win_count'] = df_feat['win']
+    df_feat['lose_count'] = 1 - df_feat['win']
+    df_feat['game_count'] = 1
+    df_feat['active_date'] = df_feat['date'].dt.date
 
-    # 필요한 칼럼 선택 ------------------------------------------------------------------------------------
-    selected_columns = ['name', 'score', 'points', 'degree', 'win', 'win_count', 'lose_count', 'winning_streak',
-                        'losing_streak', churn_column]
+    # 시간 기반 피처
+    df_feat['last_game'] = df_feat.groupby('name')['date'].transform('max')
+    df_feat['engagement_hours'] = (df_feat['last_game'] - df_feat['first_login_date']).dt.total_seconds() / 3600
+    df_feat['hour'] = df_feat['date'].dt.hour
+    df_feat['prev_date'] = df_feat.groupby('name')['date'].shift(1)
+    df_feat['gap_min'] = (df_feat['date'] - df_feat['prev_date']).dt.total_seconds() / 60
 
-    # 결과 데이터프레임 출력
-    result_df = df_copy[selected_columns]
+    # 주말 플레이 여부
+    df_feat['is_weekend'] = df_feat['date'].dt.dayofweek.isin([5, 6]).astype(int)
 
-    # flair, score, points, degree 열은  max 또는 mean 계산
-    result_df = result_df.groupby('name').agg(
-        {'score': 'mean', 'points': 'mean', 'degree': 'mean', 'win': 'mean', 'win_count': 'sum', 'lose_count': 'sum',
-         'winning_streak': 'max',
-         'losing_streak': 'max',
-         churn_column: 'max'}).reset_index()
-    result_df.drop('name', axis=1, inplace=True)
+    # 피크타임(18~24시) 플레이 여부
+    df_feat['is_peak_hour'] = df_feat['hour'].between(18, 23).astype(int)
 
-    # 결과 데이터프레임 출력
+    # 게임 순번 (성적 추세 계산용)
+    df_feat['game_seq'] = df_feat.groupby('name').cumcount()
+
+    # 첫 게임 승패
+    df_feat['_is_first'] = df_feat.groupby('name').cumcount() == 0
+    df_feat['first_game_win'] = df_feat['_is_first'].astype(int) * df_feat['win']
+
+    # 3연패 이상 후에도 계속 플레이했는지
+    df_feat['_hit_3loss'] = (df_feat['losing_streak'] >= 3).astype(int)
+    df_feat['_hit_3loss_cum'] = df_feat.groupby('name')['_hit_3loss'].cummax()
+    df_feat['_after_3loss'] = df_feat['_hit_3loss_cum'] & (~df_feat['_is_first'])
+
+    # 세션 구분 (30분 이상 간격이면 새 세션)
+    df_feat['_new_session'] = (df_feat['gap_min'] > 30) | df_feat['gap_min'].isna()
+    df_feat['session_id'] = df_feat.groupby('name')['_new_session'].cumsum()
+
+    # 활동 감소율 (AP 전반부 vs 후반부 게임 수)
+    ap_mid = df_feat['first_login_date'] + datetime.timedelta(days=activation_period / 2)
+    df_feat['_is_first_half'] = (df_feat['date'] <= ap_mid).astype(int)
+    df_feat['_is_second_half'] = (df_feat['date'] > ap_mid).astype(int)
+
+    # 피처 집계
+    def _score_trend(group):
+        """게임 순번 대비 점수의 선형 회귀 기울기"""
+        if len(group) < 2:
+            return 0.0
+        x = group['game_seq'].values.astype(float)
+        y = group['score'].values.astype(float)
+        slope = np.polyfit(x, y, 1)[0]
+        return slope
+
+    score_trends = df_feat.groupby('name').apply(_score_trend, include_groups=False).reset_index()
+    score_trends.columns = ['name', 'score_trend']
+
+    result_df = df_feat.groupby('name').agg(
+        score_mean=('score', 'mean'),
+        score_std=('score', 'std'),
+        points_mean=('points', 'mean'),
+        degree_mean=('degree', 'mean'),
+        win_rate=('win', 'mean'),
+        win_count=('win_count', 'sum'),
+        lose_count=('lose_count', 'sum'),
+        winning_streak=('winning_streak', 'max'),
+        losing_streak=('losing_streak', 'max'),
+        game_count=('game_count', 'sum'),
+        active_days=('active_date', 'nunique'),
+        engagement_hours=('engagement_hours', 'first'),
+        avg_gap_min=('gap_min', 'mean'),
+        hour_std=('hour', 'std'),
+        weekend_ratio=('is_weekend', 'mean'),
+        peak_hour_ratio=('is_peak_hour', 'mean'),
+        first_game_win=('first_game_win', 'max'),
+        comeback_after_loss=('_after_3loss', 'max'),
+        session_count=('session_id', 'nunique'),
+        first_half_games=('_is_first_half', 'sum'),
+        second_half_games=('_is_second_half', 'sum'),
+    ).reset_index()
+
+    result_df['score_std'] = result_df['score_std'].fillna(0)
+    result_df['hour_std'] = result_df['hour_std'].fillna(0)
+    result_df['avg_gap_min'] = result_df['avg_gap_min'].fillna(0)
+    result_df['games_per_day'] = result_df['game_count'] / result_df['active_days'].clip(lower=1)
+    result_df['comeback_after_loss'] = result_df['comeback_after_loss'].astype(int)
+    result_df['games_per_session'] = result_df['game_count'] / result_df['session_count'].clip(lower=1)
+    result_df['activity_decline'] = (
+        (result_df['first_half_games'] - result_df['second_half_games'])
+        / result_df['game_count'].clip(lower=1)
+    )
+    result_df.drop(columns=['first_half_games', 'second_half_games'], inplace=True)
+
+    result_df = result_df.merge(score_trends, on='name')
+
+    result_df = result_df.merge(churn_labels, on='name')
+
     return result_df
 
 
-def data_split(df, t_col, test_size, random_state=123456):
+def data_split(df, t_col, test_size, random_state=42, scale=True):
     X = df.drop(t_col, axis='columns')
     y = df[[t_col]]
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=y)
+
+    if scale:
+        scaler = StandardScaler()
+        X_train = pd.DataFrame(scaler.fit_transform(X_train), columns=X_train.columns, index=X_train.index)
+        X_test = pd.DataFrame(scaler.transform(X_test), columns=X_test.columns, index=X_test.index)
+
     return X, y, X_train, X_test, y_train, y_test

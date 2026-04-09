@@ -1,3 +1,9 @@
+.DS_Store
+
+# Data files
+user-churn-py/data/origin/
+!user-churn-py/data/matches/
+
 # Byte-compiled / optimized / DLL files
 user-churn-py/__pycache__/
 user-churn-py/*.py[cod]
@@ -241,3 +247,6 @@ user-churn-py/.idea/httpRequests
 user-churn-py/.idea/caches/build_file_checksums.ser
 
 user-churn-py/bulkmatches*.json
+CLAUDE.md
+**/CLAUDE.md
+docs/
