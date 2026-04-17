@@ -120,39 +120,44 @@ for _, row in test_df.iterrows():
 sig_count = (test_df["유의"] == "***").sum()
 print(f"\nBonferroni 보정 후 유의한 피처: {sig_count}/{len(features)}개")
 
-# ── 3. 박스플롯 (이탈 vs 유지) ───────────────────────────────
+# ── 3. 박스플롯 (이탈 vs 유지) — 두 장으로 분할 ────────────────
 print(f"\n박스플롯 생성 중...")
 
-n_cols = 3
-n_rows = (len(features) + n_cols - 1) // n_cols
-fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, n_rows * 4))
-axes = axes.flatten()
+def save_boxplot(feat_list, title, out_path):
+    n_cols = 3
+    n_rows = (len(feat_list) + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, n_rows * 4))
+    axes = axes.flatten()
 
-for i, f in enumerate(features):
-    ax = axes[i]
-    data = [churned[f].values, retained[f].values]
-    bp = ax.boxplot(data, labels=["이탈", "유지"], patch_artist=True, widths=0.6)
-    bp["boxes"][0].set_facecolor("#EF553B")
-    bp["boxes"][0].set_alpha(0.6)
-    bp["boxes"][1].set_facecolor("#636EFA")
-    bp["boxes"][1].set_alpha(0.6)
-    ax.set_title(FEATURE_KO[f], fontsize=12, fontweight="bold")
+    for i, f in enumerate(feat_list):
+        ax = axes[i]
+        data = [churned[f].values, retained[f].values]
+        bp = ax.boxplot(data, labels=["이탈", "유지"], patch_artist=True, widths=0.6)
+        bp["boxes"][0].set_facecolor("#EF553B")
+        bp["boxes"][0].set_alpha(0.6)
+        bp["boxes"][1].set_facecolor("#636EFA")
+        bp["boxes"][1].set_alpha(0.6)
+        ax.set_title(FEATURE_KO[f], fontsize=12, fontweight="bold")
 
-    # 유의성 표시
-    row = test_df[test_df["피처"] == FEATURE_KO[f]].iloc[0]
-    if row["유의"] == "***":
-        ax.text(0.95, 0.95, "***", transform=ax.transAxes, ha="right", va="top",
-                fontsize=14, color="red", fontweight="bold")
+        row = test_df[test_df["피처"] == FEATURE_KO[f]].iloc[0]
+        if row["유의"] == "***":
+            ax.text(0.95, 0.95, "***", transform=ax.transAxes, ha="right", va="top",
+                    fontsize=14, color="red", fontweight="bold")
 
-# 남는 칸 숨김
-for j in range(len(features), len(axes)):
-    axes[j].set_visible(False)
+    for j in range(len(feat_list), len(axes)):
+        axes[j].set_visible(False)
 
-fig.suptitle("이탈 vs 유지 그룹별 피처 분포 비교", fontsize=16, fontweight="bold", y=1.01)
-plt.tight_layout()
-plt.savefig(OUTPUT_DIR / "boxplot_comparison.png", dpi=150, bbox_inches="tight")
-plt.close()
-print(f"  저장: {OUTPUT_DIR / 'boxplot_comparison.png'}")
+    fig.suptitle(title, fontsize=16, fontweight="bold", y=1.01)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"  저장: {out_path}")
+
+mid = len(features) // 2  # 11 / 12 분할
+save_boxplot(features[:mid + 1], "이탈 vs 유지 그룹별 피처 분포 비교 (1/2)",
+             OUTPUT_DIR / "boxplot_comparison_1.png")
+save_boxplot(features[mid + 1:], "이탈 vs 유지 그룹별 피처 분포 비교 (2/2)",
+             OUTPUT_DIR / "boxplot_comparison_2.png")
 
 # ── 4. 이상치 분석 (IQR 기준) ────────────────────────────────
 print(f"\n{'=' * 90}")
