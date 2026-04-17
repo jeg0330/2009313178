@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import shap
 
-# 한글 폰트 설정
-plt.rcParams["font.family"] = "Apple SD Gothic Neo"
+# 한글 폰트 설정 (DejaVu Sans fallback: 음수 기호 등 ASCII 문자 깨짐 방지)
+plt.rcParams["font.family"] = ["Apple SD Gothic Neo", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 from pathlib import Path
 from sklearn.ensemble import RandomForestClassifier

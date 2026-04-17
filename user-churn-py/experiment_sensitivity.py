@@ -5,9 +5,12 @@ AP/COP 민감도 분석 실험
 """
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 from pathlib import Path
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.model_selection import StratifiedKFold, cross_validate
 import warnings
 import data_loader
 
@@ -53,9 +56,12 @@ for ap in AP_VALUES:
             class_weight="balanced", random_state=RANDOM_STATE,
         )
 
-        acc_scores = cross_val_score(rf, X, y, cv=cv, scoring="accuracy")
-        auc_scores = cross_val_score(rf, X, y, cv=cv, scoring="roc_auc")
-        f1_scores = cross_val_score(rf, X, y, cv=cv, scoring="f1_macro")
+        results = cross_validate(rf, X, y, cv=cv,
+                                 scoring=["accuracy", "roc_auc", "f1_macro"],
+                                 n_jobs=-1)
+        acc_scores = results["test_accuracy"]
+        auc_scores = results["test_roc_auc"]
+        f1_scores = results["test_f1_macro"]
 
         rows.append({
             "AP": ap,
@@ -101,3 +107,28 @@ print(pivot_users.to_string())
 best = df.loc[df["AUC-ROC"].idxmax()]
 print(f"\n최고 AUC-ROC 조합: AP={int(best['AP'])}, COP={int(best['COP'])} → AUC={best['AUC-ROC']:.4f}")
 print(f"  (유저 수: {int(best['유저 수']):,}, 이탈 비율: {best['이탈 비율']:.1%})")
+
+# ── AUC-ROC 시계열 플롯 ──────────────────────────────────────
+RESULTS_DIR = Path(__file__).parent / "results" / "sensitivity"
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+fig, ax = plt.subplots(figsize=(8, 5))
+colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
+for i, cop in enumerate(COP_VALUES):
+    cop_data = df[df["COP"] == cop].sort_values("AP")
+    ax.plot(cop_data["AP"], cop_data["AUC-ROC"],
+            marker="o", color=colors[i], label=f"COP={cop}일")
+
+ax.set_xlabel("AP (Activation Period, 일)", fontsize=12)
+ax.set_ylabel("AUC-ROC", fontsize=12)
+ax.set_title("AP/COP 조합별 AUC-ROC 변화", fontsize=13)
+ax.set_xticks(AP_VALUES)
+ax.set_ylim(0.77, 0.94)
+ax.legend(title="COP", loc="lower right")
+ax.grid(True, alpha=0.3)
+plt.tight_layout()
+
+out_path = RESULTS_DIR / "auc_roc_by_ap.png"
+plt.savefig(out_path, dpi=150)
+plt.close()
+print(f"\n시각화 저장: {out_path}")
