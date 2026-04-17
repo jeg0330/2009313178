@@ -8,6 +8,8 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+plt.rcParams["font.family"] = ["Apple SD Gothic Neo", "DejaVu Sans"]
+plt.rcParams["axes.unicode_minus"] = False
 from pathlib import Path
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedKFold, cross_validate
