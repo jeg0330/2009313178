@@ -467,7 +467,7 @@ with tab2:
             key="pred_model",
         )
         pred_model = _ensure_model(pred_model_key)
-        _pred_features = [c for c in FEATURE_COLS if c in filtered_df_names.columns]
+        _pred_features = st.session_state.feature_names  # 학습 시 컬럼 순서 그대로 사용
         X_all = filtered_df_names[_pred_features]
         proba = pred_model.predict_proba(X_all)[:, 1]
         # proba 는 churn_col==1 (유지) 확률이므로 이탈 확률 = 1 - proba
